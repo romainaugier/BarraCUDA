@@ -34,7 +34,7 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 │       ↓                                                      │
 │  ELF Emission → .hsaco ready for the GPU                     │
 │       ↓                                                      │
-│  Your kernel runs on silicon that NVIDIA doesn't control     │
+│  Your kernel runs on ya silicon                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
