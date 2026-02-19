@@ -1,6 +1,6 @@
 # BarraCUDA
 
-An open-source CUDA compiler that targets AMD GPUs, with more architectures planned. Written in C99. Zero LLVM dependency. Compiles `.cu` files straight to GFX11 machine code and spits out ELF `.hsaco` binaries that AMD GPUs can actually run.
+An open-source CUDA C++ compiler written from scratch in C99 that takes `.cu` files and compiles them to AMD GPU machine code, with more architectures planned. No LLVM, no dependencies, and no permission asked.
 
 This is what happens when you look at NVIDIA's walled garden and think "how hard can it be?" The answer is: quite hard, actually, but I did it anyway.
 
@@ -122,6 +122,24 @@ wrote vector_add.hsaco (528 bytes code, 1 kernels)
 ```
 
 No LLVM required :-) 
+
+## Architecture
+
+| File | Lines | What It Does |
+|------|-------|-------------|
+| `lexer.c` | 747 | Tokenises CUDA C source |
+| `preproc.c` | 1,370 | C preprocessor (macros, includes, conditionals) |
+| `parser.c` | 1,500 | Recursive descent parser → AST |
+| `sema.c` | 1,725 | Type checking, scope resolution, overload resolution |
+| `bir.c` + `bir_lower.c` | 3,032 | SSA intermediate representation + AST→BIR lowering |
+| `bir_mem2reg.c` | 965 | Promotes stack allocas to SSA registers |
+| `bir_print.c` | 579 | IR pretty printer with source location annotations |
+| `amdgpu_isel.c` | 1,788 | Instruction selection: BIR → AMDGPU machine ops |
+| `amdgpu_emit.c` | 1,735 | Register allocation + GFX11 binary encoding + ELF emission |
+| `main.c` | 317 | CLI driver |
+| **Total** | **15,117** | |
+
+All data structures use pre-allocated fixed-size arrays. No malloc in hot paths. No recursion. Bounded loops everywhere. The kind of code that would make JPL's coding standards committee nod approvingly before going back to landing things on Mars.
 
 ## What Doesn't Work (Yet)
 
