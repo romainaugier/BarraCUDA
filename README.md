@@ -4,15 +4,13 @@ An open-source CUDA compiler that targets AMD GPUs, with more architectures plan
 
 This is what happens when you look at NVIDIA's walled garden and think "how hard can it be?" The answer is: quite hard, actually, but I did it anyway.
 
-note: if youre here to test out my current tenstorrent implementation youll have to clone that respective branch :-) 
-
 ## What It Does
 
 Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compiles them to AMD RDNA 3 (gfx1100) binaries. No LLVM. No HIP translation layer. No "convert your CUDA to something else first." Just a lexer, a parser, an IR, and roughly 1,700 lines of hand-written instruction selection that would make a compiler textbook weep.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     BarraCUDA Pipeline                       │
+│                     BarraCUDA Pipeline                        │
 ├──────────────────────────────────────────────────────────────┤
 │  Source (.cu)                                                │
 │       ↓                                                      │
@@ -26,7 +24,7 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 │       ↓                                                      │
 │  BIR (BarraCUDA IR) → SSA form, typed instructions           │
 │       ↓                                                      │
-│  mem2reg → Promotes allocas to SSA registers                 │
+│  mem2reg → Promotes allocas to SSA registers                  │
 │       ↓                                                      │
 │  Instruction Selection → AMDGPU machine instructions         │
 │       ↓                                                      │
@@ -36,7 +34,7 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 │       ↓                                                      │
 │  ELF Emission → .hsaco ready for the GPU                     │
 │       ↓                                                      │
-│  Your kernel runs on ya silicon                              │
+│  Your kernel runs on silicon that NVIDIA doesn't control     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -176,6 +174,15 @@ The IR (BIR) is target-independent. The backend is cleanly separated. Adding a n
 - **Tenstorrent** - RISC-V based AI accelerators. Open ISA. Very different execution model (tile-based, not SIMT) but the IR maps well.
 - **Intel Arc** - Xe architecture. Would give BarraCUDA coverage across all three major GPU vendors.
 - **RISC-V Vector Extension** - For when GPUs are too mainstream and you want to run CUDA on a softcore.
+
+## Why Does This Exist?
+
+1. Because CUDA shouldn't require an NVIDIA GPU
+2. Because HIP translation is a workaround, not a solution
+3. Because 15,000 lines of C is a more honest compiler than a million lines of LLVM
+4. Because someone should prove it's possible to write a GPU compiler backend by hand
+5. Because open hardware deserves open compilers
+6. I wasn't going to play video games anyway (lie)
 
 ## GFX11 Encoding Notes (For The Brave)
 
