@@ -409,6 +409,51 @@ static uint32_t emit2f(uint16_t op, moperand_t dst, moperand_t s0,
     return emit_minst(op, 1, 2, ops, flags);
 }
 
+/* ---- Wait Helpers (GFX11 vs GFX12) ---- */
+
+/* GFX12 splits s_waitcnt into per-counter instructions.
+   These helpers pick the right one so isel doesn't have to care. */
+
+static void emit_wait_vm(void)
+{
+    if (S.amd->target >= AMD_TARGET_GFX1200) {
+        emit0_0(AMD_S_WAIT_LOADCNT, 0);
+        emit0_0(AMD_S_WAIT_STORECNT, 0);
+    } else {
+        emit0_0(AMD_S_WAITCNT, AMD_WAIT_VMCNT0);
+    }
+}
+
+static void emit_wait_smem(void)
+{
+    if (S.amd->target >= AMD_TARGET_GFX1200) {
+        emit0_0(AMD_S_WAIT_KMCNT, 0);
+    } else {
+        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+    }
+}
+
+static void emit_wait_ds(void)
+{
+    if (S.amd->target >= AMD_TARGET_GFX1200) {
+        emit0_0(AMD_S_WAIT_DSCNT, 0);
+    } else {
+        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+    }
+}
+
+static void emit_wait_all(void)
+{
+    if (S.amd->target >= AMD_TARGET_GFX1200) {
+        emit0_0(AMD_S_WAIT_LOADCNT, 0);
+        emit0_0(AMD_S_WAIT_STORECNT, 0);
+        emit0_0(AMD_S_WAIT_KMCNT, 0);
+        emit0_0(AMD_S_WAIT_DSCNT, 0);
+    } else {
+        emit0_0(AMD_S_WAITCNT, AMD_WAIT_ALL);
+    }
+}
+
 /* ---- Resolve BIR Value to Machine Operand ---- */
 
 static moperand_t resolve_val(uint32_t val, int want_vector)
@@ -474,7 +519,22 @@ static int bir_type_width(uint32_t tidx)
     if (t->kind == BIR_TYPE_INT || t->kind == BIR_TYPE_FLOAT)
         return t->width;
     if (t->kind == BIR_TYPE_PTR) return 64;
+    if (t->kind == BIR_TYPE_ARRAY)
+        return (int)t->count * bir_type_width(t->inner);
     return 32;
+}
+
+static uint32_t arrsz(uint32_t tidx)
+{
+    if (tidx >= S.bir->num_types) return 4;
+    const bir_type_t *t = &S.bir->types[tidx];
+    if (t->kind == BIR_TYPE_ARRAY)
+        return t->count * arrsz(t->inner);
+    if (t->kind == BIR_TYPE_INT || t->kind == BIR_TYPE_FLOAT)
+        return t->width / 8;
+    if (t->kind == BIR_TYPE_PTR) return 8;
+    if (t->kind == BIR_TYPE_STRUCT) return t->num_fields * 4;
+    return 4;
 }
 
 /* Get type kind */
@@ -499,11 +559,7 @@ static uint32_t pointee_size(uint32_t ptr_type)
     if (ptr_type >= S.bir->num_types) return 4;
     const bir_type_t *pt = &S.bir->types[ptr_type];
     if (pt->kind != BIR_TYPE_PTR || pt->inner >= S.bir->num_types) return 4;
-    const bir_type_t *elem = &S.bir->types[pt->inner];
-    if (elem->kind == BIR_TYPE_INT || elem->kind == BIR_TYPE_FLOAT)
-        return elem->width / 8;
-    if (elem->kind == BIR_TYPE_PTR) return 8;
-    return 4;
+    return arrsz(pt->inner);
 }
 
 /* ---- Instruction Selection: Individual BIR Opcodes ---- */
@@ -525,6 +581,8 @@ static void isel_arith(uint32_t idx, const bir_inst_t *I, int div)
         case BIR_FADD: emit2(AMD_V_ADD_F32, dst, src0, ensure_vgpr(src1)); break;
         case BIR_FSUB: emit2(AMD_V_SUB_F32, dst, src0, ensure_vgpr(src1)); break;
         case BIR_FMUL: emit2(AMD_V_MUL_F32, dst, src0, ensure_vgpr(src1)); break;
+        case BIR_FMAX: emit2(AMD_V_MAX_F32, dst, src0, ensure_vgpr(src1)); break;
+        case BIR_FMIN: emit2(AMD_V_MIN_F32, dst, src0, ensure_vgpr(src1)); break;
         case BIR_FDIV: {
             /* v_rcp_f32 + v_mul_f32 */
             uint32_t tmp = new_vreg(1);
@@ -597,8 +655,8 @@ static void isel_arith(uint32_t idx, const bir_inst_t *I, int div)
         case BIR_ASHR: emit2(AMD_S_ASHR_I32, dst, src0, src1); break;
         /* Float ops: no scalar float ALU on AMDGPU, always vector */
         case BIR_FADD: case BIR_FSUB: case BIR_FMUL:
+        case BIR_FMAX: case BIR_FMIN:
         case BIR_FDIV: case BIR_FREM: {
-            /* Promote to vector for float */
             S.amd->val_file[idx] = 1;
             S.amd->reg_file[vr] = 1;
             moperand_t vdst = mop_vreg_v((uint16_t)vr);
@@ -607,6 +665,8 @@ static void isel_arith(uint32_t idx, const bir_inst_t *I, int div)
             if (I->op == BIR_FADD) emit2(AMD_V_ADD_F32, vdst, vs0, vs1);
             else if (I->op == BIR_FSUB) emit2(AMD_V_SUB_F32, vdst, vs0, vs1);
             else if (I->op == BIR_FMUL) emit2(AMD_V_MUL_F32, vdst, vs0, vs1);
+            else if (I->op == BIR_FMAX) emit2(AMD_V_MAX_F32, vdst, vs0, vs1);
+            else if (I->op == BIR_FMIN) emit2(AMD_V_MIN_F32, vdst, vs0, vs1);
             else if (I->op == BIR_FDIV) {
                 uint32_t rcp = new_vreg(1);
                 emit1(AMD_V_RCP_F32, mop_vreg_v((uint16_t)rcp), vs1);
@@ -870,11 +930,39 @@ static void isel_conversion(uint32_t idx, const bir_inst_t *I, int div)
         break;
     }
     case BIR_PTRTOINT: case BIR_INTTOPTR: case BIR_BITCAST: {
-        /* Reinterpret: just copy */
         if (div)
             emit1(AMD_V_MOV_B32, mop_vreg_v((uint16_t)vr), ensure_vgpr(src));
         else
             emit1(AMD_S_MOV_B32, mop_vreg_s((uint16_t)vr), src);
+        break;
+    }
+    case BIR_SQRT: case BIR_RSQ: case BIR_RCP:
+    case BIR_EXP2: case BIR_LOG2:
+    case BIR_SIN: case BIR_COS:
+    case BIR_FLOOR: case BIR_CEIL: case BIR_FTRUNC: case BIR_RNDNE: {
+        S.amd->val_file[idx] = 1;
+        S.amd->reg_file[vr] = 1;
+        static const struct { bir_op_t bo; amd_op_t ao; } m1[] = {
+            {BIR_SQRT,AMD_V_SQRT_F32},{BIR_RSQ,AMD_V_RSQ_F32},
+            {BIR_RCP,AMD_V_RCP_F32},{BIR_EXP2,AMD_V_EXP_F32},
+            {BIR_LOG2,AMD_V_LOG_F32},{BIR_SIN,AMD_V_SIN_F32},
+            {BIR_COS,AMD_V_COS_F32},{BIR_FLOOR,AMD_V_FLOOR_F32},
+            {BIR_CEIL,AMD_V_CEIL_F32},{BIR_FTRUNC,AMD_V_TRUNC_F32},
+            {BIR_RNDNE,AMD_V_RNDNE_F32},
+        };
+        for (int mi = 0; mi < 11; mi++) {
+            if (m1[mi].bo == I->op) {
+                emit1(m1[mi].ao, mop_vreg_v((uint16_t)vr), ensure_vgpr(src));
+                break;
+            }
+        }
+        break;
+    }
+    case BIR_FABS: {
+        S.amd->val_file[idx] = 1;
+        S.amd->reg_file[vr] = 1;
+        emit2(AMD_V_AND_B32, mop_vreg_v((uint16_t)vr),
+              ensure_vgpr(src), mop_imm(0x7FFFFFFF));
         break;
     }
     default:
@@ -911,25 +999,25 @@ static void isel_load(uint32_t idx, const bir_inst_t *I, int div)
             moperand_t vaddr = ensure_vgpr(resolve_val(I->operands[0], div));
             emit2(AMD_GLOBAL_LOAD_DWORD, mop_vreg_v((uint16_t)vr), vaddr, mop_imm(0));
         }
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_VMCNT0);
+        emit_wait_vm();
         break;
     }
     case BIR_AS_SHARED: {
         moperand_t vaddr = ensure_vgpr(resolve_val(I->operands[0], div));
         emit2(AMD_DS_READ_B32, mop_vreg_v((uint16_t)vr), vaddr, mop_imm(0));
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_ds();
         break;
     }
     case BIR_AS_CONSTANT: {
         moperand_t addr = resolve_val(I->operands[0], 0);
         emit2(AMD_S_LOAD_DWORD, mop_vreg_s((uint16_t)vr), addr, mop_imm(0));
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_smem();
         break;
     }
     case BIR_AS_PRIVATE: {
         moperand_t vaddr = ensure_vgpr(resolve_val(I->operands[0], div));
         emit2(AMD_SCRATCH_LOAD_DWORD, mop_vreg_v((uint16_t)vr), vaddr, mop_imm(0));
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_VMCNT0);
+        emit_wait_vm();
         break;
     }
     default:
@@ -1076,37 +1164,14 @@ static void isel_alloca(uint32_t idx, const bir_inst_t *I)
     /* v_mov_b32 vr, scratch_offset */
     emit1(AMD_V_MOV_B32, mop_vreg_v((uint16_t)vr), mop_imm((int32_t)S.scratch_offset));
 
-    /* Advance scratch offset by the alloca size (from type) */
-    uint32_t sz = 4; /* default */
-    if (I->type < S.bir->num_types) {
-        const bir_type_t *pt = &S.bir->types[I->type];
-        if (pt->kind == BIR_TYPE_PTR && pt->inner < S.bir->num_types) {
-            const bir_type_t *elem = &S.bir->types[pt->inner];
-            if (elem->kind == BIR_TYPE_INT || elem->kind == BIR_TYPE_FLOAT)
-                sz = elem->width / 8;
-            else if (elem->kind == BIR_TYPE_ARRAY && elem->count < 0x10000)
-                sz = elem->count * 4;
-        }
-    }
+    uint32_t sz = pointee_size(I->type);
+    if (sz < 4) sz = 4;
     S.scratch_offset += sz;
 }
 
 static void isel_shared_alloc(uint32_t idx, const bir_inst_t *I)
 {
-    /* Static LDS allocation — cumulative offset per function */
-    uint32_t sz = 4;
-    if (I->type < S.bir->num_types) {
-        const bir_type_t *pt = &S.bir->types[I->type];
-        if (pt->kind == BIR_TYPE_PTR && pt->inner < S.bir->num_types) {
-            const bir_type_t *elem = &S.bir->types[pt->inner];
-            if (elem->kind == BIR_TYPE_ARRAY && elem->count < 0x10000)
-                sz = elem->count * bir_type_width(elem->inner) / 8;
-            else if (elem->kind == BIR_TYPE_INT || elem->kind == BIR_TYPE_FLOAT)
-                sz = elem->width / 8;
-            else if (elem->kind == BIR_TYPE_STRUCT)
-                sz = elem->num_fields * 4; /* rough estimate */
-        }
-    }
+    uint32_t sz = pointee_size(I->type);
     if (sz < 1) sz = 4;
     /* Align to 4 bytes */
     S.lds_offset = (S.lds_offset + 3u) & ~3u;
@@ -1118,6 +1183,7 @@ static void isel_shared_alloc(uint32_t idx, const bir_inst_t *I)
 
 static void isel_global_ref(uint32_t idx, const bir_inst_t *I)
 {
+    (void)I;
     /* Hidden kernarg: 64-bit pointer appended after explicit params.
        Load into SGPR pair for saddr, VGPR gets zero offset. */
     uint32_t offst = S.hkrarg;
@@ -1130,7 +1196,7 @@ static void isel_global_ref(uint32_t idx, const bir_inst_t *I)
 
     emit2(AMD_S_LOAD_DWORDX2, mop_sgpr(sbase),
           mop_sgpr(AMD_SGPR_KERNARG_LO), mop_imm((int32_t)offst));
-    emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+    emit_wait_smem();
     S.amd->val_sbase[idx] = sbase;
 
     uint32_t vr = map_bir_val(idx, 1);
@@ -1301,7 +1367,7 @@ static void isel_param(uint32_t idx, const bir_inst_t *I)
 
             emit2(AMD_S_LOAD_DWORDX2, mop_sgpr(base_sgpr),
                   mop_sgpr(AMD_SGPR_KERNARG_LO), mop_imm((int32_t)offset));
-            emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+            emit_wait_smem();
             S.amd->val_sbase[idx] = base_sgpr;
 
             /* VGPR offset starts at 0 (base + 0 = base address) */
@@ -1313,7 +1379,7 @@ static void isel_param(uint32_t idx, const bir_inst_t *I)
             uint32_t vr = map_bir_val(idx, 0);
             emit2(AMD_S_LOAD_DWORD, mop_vreg_s((uint16_t)vr),
                   mop_sgpr(AMD_SGPR_KERNARG_LO), mop_imm((int32_t)offset));
-            emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+            emit_wait_smem();
         }
     } else {
         /* Device function: params in v0, v1, ... */
@@ -1356,7 +1422,7 @@ static void isel_thread_model(uint32_t idx, const bir_inst_t *I)
         uint32_t offset = 4 + dim * 2;
         emit2(AMD_S_LOAD_DWORD, mop_vreg_s((uint16_t)vr),
               mop_sgpr(AMD_SGPR_DISPATCH_LO), mop_imm((int32_t)offset));
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_smem();
         /* Mask to 16 bits */
         emit2(AMD_S_AND_B32, mop_vreg_s((uint16_t)vr),
               mop_vreg_s((uint16_t)vr), mop_imm(0xFFFF));
@@ -1368,7 +1434,7 @@ static void isel_thread_model(uint32_t idx, const bir_inst_t *I)
         uint32_t gs_off = 12 + dim * 4; /* grid_size_x=12, y=16, z=20 */
         emit2(AMD_S_LOAD_DWORD, mop_vreg_s((uint16_t)vr),
               mop_sgpr(AMD_SGPR_DISPATCH_LO), mop_imm((int32_t)gs_off));
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_smem();
         break;
     }
     default:
@@ -1378,7 +1444,7 @@ static void isel_thread_model(uint32_t idx, const bir_inst_t *I)
 
 static void isel_barrier(void)
 {
-    emit0_0(AMD_S_WAITCNT, AMD_WAIT_ALL);
+    emit_wait_all();
     emit0_0(AMD_S_BARRIER, 0);
 }
 
@@ -1413,7 +1479,7 @@ static void isel_atomic(uint32_t idx, const bir_inst_t *I, int div)
         default: ds_op = AMD_DS_ADD_RTN_U32; break;
         }
         emit2(ds_op, dst, addr, val);
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_ds();
     } else {
         /* Global atomics */
         moperand_t val = (nops > 1) ? ensure_vgpr(resolve_val(I->operands[1], 1)) : mop_imm(0);
@@ -1438,7 +1504,7 @@ static void isel_atomic(uint32_t idx, const bir_inst_t *I, int div)
         } else {
             emit2f(glb_op, dst, addr, val, AMD_FLAG_GLC);
         }
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_VMCNT0);
+        emit_wait_vm();
     }
 }
 
@@ -1448,7 +1514,7 @@ static void isel_atomic_load(uint32_t idx, const bir_inst_t *I, int div)
     moperand_t addr = ensure_vgpr(resolve_val(I->operands[0], div));
     uint32_t vr = map_bir_val(idx, 1);
     emit2f(AMD_GLOBAL_LOAD_DWORD, mop_vreg_v((uint16_t)vr), addr, mop_imm(0), AMD_FLAG_GLC);
-    emit0_0(AMD_S_WAITCNT, AMD_WAIT_VMCNT0);
+    emit_wait_vm();
 }
 
 static void isel_atomic_store(const bir_inst_t *I, int div)
@@ -1475,7 +1541,7 @@ static void isel_warp(uint32_t idx, const bir_inst_t *I)
         emit2(AMD_V_LSHLREV_B32, mop_vreg_v((uint16_t)addr_v), mop_imm(2), lane);
         emit2(AMD_DS_BPERMUTE_B32, mop_vreg_v((uint16_t)vr),
               mop_vreg_v((uint16_t)addr_v), val);
-        emit0_0(AMD_S_WAITCNT, AMD_WAIT_LGKMCNT0);
+        emit_wait_ds();
         break;
     }
     case BIR_BALLOT: {
@@ -1681,6 +1747,7 @@ static void isel_function(uint32_t fi)
             case BIR_SDIV: case BIR_UDIV: case BIR_SREM: case BIR_UREM:
             case BIR_FADD: case BIR_FSUB: case BIR_FMUL:
             case BIR_FDIV: case BIR_FREM:
+            case BIR_FMAX: case BIR_FMIN:
             case BIR_AND: case BIR_OR: case BIR_XOR:
             case BIR_SHL: case BIR_LSHR: case BIR_ASHR:
                 isel_arith(idx, I, div);
@@ -1700,6 +1767,11 @@ static void isel_function(uint32_t fi)
             case BIR_FPTOSI: case BIR_FPTOUI:
             case BIR_SITOFP: case BIR_UITOFP:
             case BIR_PTRTOINT: case BIR_INTTOPTR: case BIR_BITCAST:
+            case BIR_SQRT: case BIR_RSQ: case BIR_RCP:
+            case BIR_EXP2: case BIR_LOG2:
+            case BIR_SIN: case BIR_COS:
+            case BIR_FABS: case BIR_FLOOR: case BIR_CEIL:
+            case BIR_FTRUNC: case BIR_RNDNE:
                 isel_conversion(idx, I, div);
                 break;
 
@@ -1809,7 +1881,7 @@ static void isel_function(uint32_t fi)
     MF->num_blocks = (uint16_t)(A->num_mblocks - MF->first_block);
     MF->scratch_bytes = S.scratch_offset;
     MF->kernarg_bytes = S.hkrarg;
-    MF->lds_bytes = S.lds_offset;
+    MF->lds_bytes = (uint16_t)S.lds_offset;
     MF->first_alloc_sgpr = S.next_param_sgpr;
 }
 
