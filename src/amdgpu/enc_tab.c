@@ -1,0 +1,183 @@
+#include "amdgpu.h"
+
+/*
+ * AMDGCN opcode encoding tables.
+ * Maps amd_op_t -> (format, hw_opcode, mnemonic) for each target generation.
+ * GFX11 (gfx1100, RDNA 3) opcodes extracted by assembling with llvm-mc
+ * and reading the bones. GFX10 table to follow once someone brave enough
+ * volunteers to read *that* ISA manual too.
+ */
+
+/* ---- GFX11 Encoding Table ---- */
+
+const amd_enc_entry_t amd_enc_table[AMD_OP_COUNT] = {
+    /* SOP2 */
+    [AMD_S_ADD_U32]         = { AMD_FMT_SOP2, 0x00, "s_add_u32"         },
+    [AMD_S_SUB_U32]         = { AMD_FMT_SOP2, 0x01, "s_sub_u32"         },
+    [AMD_S_MUL_I32]         = { AMD_FMT_SOP2, 0x2C, "s_mul_i32"         },
+    [AMD_S_AND_B32]         = { AMD_FMT_SOP2, 0x16, "s_and_b32"         },
+    [AMD_S_OR_B32]          = { AMD_FMT_SOP2, 0x18, "s_or_b32"          },
+    [AMD_S_XOR_B32]         = { AMD_FMT_SOP2, 0x1A, "s_xor_b32"         },
+    [AMD_S_LSHL_B32]        = { AMD_FMT_SOP2, 0x08, "s_lshl_b32"        },
+    [AMD_S_LSHR_B32]        = { AMD_FMT_SOP2, 0x0A, "s_lshr_b32"        },
+    [AMD_S_ASHR_I32]        = { AMD_FMT_SOP2, 0x0C, "s_ashr_i32"        },
+    [AMD_S_ANDN2_B32]       = { AMD_FMT_SOP2, 0x22, "s_andn2_b32"       },
+    [AMD_S_ORN2_B32]        = { AMD_FMT_SOP2, 0x24, "s_orn2_b32"        },
+    [AMD_S_BFE_I32]         = { AMD_FMT_SOP2, 0x27, "s_bfe_i32"         },
+    [AMD_S_CSELECT_B32]     = { AMD_FMT_SOP2, 0x30, "s_cselect_b32"     },
+
+    /* SOP1 */
+    [AMD_S_MOV_B32]         = { AMD_FMT_SOP1, 0x00, "s_mov_b32"         },
+    [AMD_S_NOT_B32]         = { AMD_FMT_SOP1, 0x1E, "s_not_b32"         },
+    [AMD_S_AND_SAVEEXEC_B32]= { AMD_FMT_SOP1, 0x20, "s_and_saveexec_b32"},
+    [AMD_S_SETPC_B64]       = { AMD_FMT_SOP1, 0x48, "s_setpc_b64"       },
+    [AMD_S_SWAPPC_B64]      = { AMD_FMT_SOP1, 0x49, "s_swappc_b64"      },
+    [AMD_S_GETPC_B64]       = { AMD_FMT_SOP1, 0x47, "s_getpc_b64"       },
+
+    /* SOPC */
+    [AMD_S_CMP_EQ_U32]      = { AMD_FMT_SOPC, 0x06, "s_cmp_eq_u32"      },
+    [AMD_S_CMP_NE_U32]      = { AMD_FMT_SOPC, 0x06, "s_cmp_eq_u32"      }, /* GFX11: no NE, use EQ+invert */
+    [AMD_S_CMP_LT_U32]      = { AMD_FMT_SOPC, 0x0A, "s_cmp_lt_u32"      },
+    [AMD_S_CMP_LE_U32]      = { AMD_FMT_SOPC, 0x0B, "s_cmp_le_u32"      },
+    [AMD_S_CMP_GT_U32]      = { AMD_FMT_SOPC, 0x08, "s_cmp_gt_u32"      },
+    [AMD_S_CMP_GE_U32]      = { AMD_FMT_SOPC, 0x09, "s_cmp_ge_u32"      },
+    [AMD_S_CMP_LT_I32]      = { AMD_FMT_SOPC, 0x04, "s_cmp_lt_i32"      },
+    [AMD_S_CMP_LE_I32]      = { AMD_FMT_SOPC, 0x05, "s_cmp_le_i32"      },
+    [AMD_S_CMP_GT_I32]      = { AMD_FMT_SOPC, 0x02, "s_cmp_gt_i32"      },
+    [AMD_S_CMP_GE_I32]      = { AMD_FMT_SOPC, 0x03, "s_cmp_ge_i32"      },
+    [AMD_S_CMP_EQ_I32]      = { AMD_FMT_SOPC, 0x00, "s_cmp_eq_i32"      },
+    [AMD_S_CMP_NE_I32]      = { AMD_FMT_SOPC, 0x00, "s_cmp_eq_i32"      }, /* GFX11: no NE, use EQ+invert */
+
+    /* SOPP */
+    [AMD_S_BRANCH]           = { AMD_FMT_SOPP, 0x20, "s_branch"           },
+    [AMD_S_CBRANCH_SCC0]     = { AMD_FMT_SOPP, 0x21, "s_cbranch_scc0"     },
+    [AMD_S_CBRANCH_SCC1]     = { AMD_FMT_SOPP, 0x22, "s_cbranch_scc1"     },
+    [AMD_S_CBRANCH_EXECZ]    = { AMD_FMT_SOPP, 0x25, "s_cbranch_execz"    },
+    [AMD_S_CBRANCH_EXECNZ]   = { AMD_FMT_SOPP, 0x26, "s_cbranch_execnz"   },
+    [AMD_S_ENDPGM]           = { AMD_FMT_SOPP, 0x30, "s_endpgm"           },
+    [AMD_S_BARRIER]          = { AMD_FMT_SOPP, 0x3D, "s_barrier"          },
+    [AMD_S_WAITCNT]          = { AMD_FMT_SOPP, 0x09, "s_waitcnt"          },
+    [AMD_S_NOP]              = { AMD_FMT_SOPP, 0x00, "s_nop"              },
+    [AMD_S_WAIT_LOADCNT]     = { AMD_FMT_SOPP, 0x40, "s_wait_loadcnt"    },
+    [AMD_S_WAIT_STORECNT]    = { AMD_FMT_SOPP, 0x41, "s_wait_storecnt"   },
+    [AMD_S_WAIT_DSCNT]       = { AMD_FMT_SOPP, 0x46, "s_wait_dscnt"     },
+    [AMD_S_WAIT_KMCNT]       = { AMD_FMT_SOPP, 0x47, "s_wait_kmcnt"     },
+
+    /* SMEM — GFX11: prefix=0x3D, OP at [25:18] */
+    [AMD_S_LOAD_DWORD]       = { AMD_FMT_SMEM, 0x00, "s_load_dword"       },
+    [AMD_S_LOAD_DWORDX2]     = { AMD_FMT_SMEM, 0x01, "s_load_dwordx2"     },
+    [AMD_S_LOAD_DWORDX4]     = { AMD_FMT_SMEM, 0x02, "s_load_dwordx4"     },
+
+    /* VOP2 */
+    [AMD_V_ADD_U32]          = { AMD_FMT_VOP2, 0x25, "v_add_u32"          },
+    [AMD_V_SUB_U32]          = { AMD_FMT_VOP2, 0x26, "v_sub_u32"          },
+    [AMD_V_MUL_LO_U32]      = { AMD_FMT_VOP3, 0x32C,"v_mul_lo_u32"       },
+    [AMD_V_AND_B32]          = { AMD_FMT_VOP2, 0x1B, "v_and_b32"          },
+    [AMD_V_OR_B32]           = { AMD_FMT_VOP2, 0x1C, "v_or_b32"           },
+    [AMD_V_XOR_B32]          = { AMD_FMT_VOP2, 0x1D, "v_xor_b32"          },
+    [AMD_V_LSHLREV_B32]      = { AMD_FMT_VOP2, 0x18, "v_lshlrev_b32"      },
+    [AMD_V_LSHRREV_B32]      = { AMD_FMT_VOP2, 0x19, "v_lshrrev_b32"      },
+    [AMD_V_ASHRREV_I32]      = { AMD_FMT_VOP2, 0x1A, "v_ashrrev_i32"      },
+    [AMD_V_ADD_F32]          = { AMD_FMT_VOP2, 0x03, "v_add_f32"          },
+    [AMD_V_SUB_F32]          = { AMD_FMT_VOP2, 0x04, "v_sub_f32"          },
+    [AMD_V_MUL_F32]          = { AMD_FMT_VOP2, 0x08, "v_mul_f32"          },
+    [AMD_V_CNDMASK_B32]      = { AMD_FMT_VOP2, 0x01, "v_cndmask_b32"      },
+    [AMD_V_MIN_F32]          = { AMD_FMT_VOP2, 0x0F, "v_min_f32"          },
+    [AMD_V_MAX_F32]          = { AMD_FMT_VOP2, 0x10, "v_max_f32"          },
+
+    /* VOP1 */
+    [AMD_V_MOV_B32]          = { AMD_FMT_VOP1, 0x01, "v_mov_b32"          },
+    [AMD_V_CVT_F32_I32]      = { AMD_FMT_VOP1, 0x05, "v_cvt_f32_i32"      },
+    [AMD_V_CVT_F32_U32]      = { AMD_FMT_VOP1, 0x06, "v_cvt_f32_u32"      },
+    [AMD_V_CVT_I32_F32]      = { AMD_FMT_VOP1, 0x08, "v_cvt_i32_f32"      },
+    [AMD_V_CVT_U32_F32]      = { AMD_FMT_VOP1, 0x07, "v_cvt_u32_f32"      },
+    [AMD_V_CVT_F32_F16]      = { AMD_FMT_VOP1, 0x0B, "v_cvt_f32_f16"      },
+    [AMD_V_CVT_F16_F32]      = { AMD_FMT_VOP1, 0x0A, "v_cvt_f16_f32"      },
+    [AMD_V_CVT_F64_F32]      = { AMD_FMT_VOP1, 0x10, "v_cvt_f64_f32"      },
+    [AMD_V_CVT_F32_F64]      = { AMD_FMT_VOP1, 0x0F, "v_cvt_f32_f64"      },
+    [AMD_V_RCP_F32]          = { AMD_FMT_VOP1, 0x2A, "v_rcp_f32"          },
+    [AMD_V_SQRT_F32]         = { AMD_FMT_VOP1, 0x33, "v_sqrt_f32"         },
+    [AMD_V_RSQ_F32]          = { AMD_FMT_VOP1, 0x2E, "v_rsq_f32"          },
+    [AMD_V_EXP_F32]          = { AMD_FMT_VOP1, 0x25, "v_exp_f32"          },
+    [AMD_V_LOG_F32]          = { AMD_FMT_VOP1, 0x27, "v_log_f32"          },
+    [AMD_V_SIN_F32]          = { AMD_FMT_VOP1, 0x35, "v_sin_f32"          },
+    [AMD_V_COS_F32]          = { AMD_FMT_VOP1, 0x36, "v_cos_f32"          },
+    [AMD_V_FLOOR_F32]        = { AMD_FMT_VOP1, 0x24, "v_floor_f32"        },
+    [AMD_V_CEIL_F32]         = { AMD_FMT_VOP1, 0x22, "v_ceil_f32"         },
+    [AMD_V_TRUNC_F32]        = { AMD_FMT_VOP1, 0x21, "v_trunc_f32"        },
+    [AMD_V_RNDNE_F32]        = { AMD_FMT_VOP1, 0x23, "v_rndne_f32"        },
+    [AMD_V_FRACT_F32]        = { AMD_FMT_VOP1, 0x20, "v_fract_f32"        },
+    [AMD_V_NOT_B32]          = { AMD_FMT_VOP1, 0x37, "v_not_b32"          },
+    [AMD_V_READFIRSTLANE_B32]= { AMD_FMT_VOP1, 0x02, "v_readfirstlane_b32"},
+
+    /* VOP3 — GFX11: prefix=0x35, 10-bit opcodes */
+    [AMD_V_MAD_U32_U24]      = { AMD_FMT_VOP3, 0x20B,"v_mad_u32_u24"      },
+    [AMD_V_BFE_I32]          = { AMD_FMT_VOP3, 0x211,"v_bfe_i32"          },
+    [AMD_V_BFE_U32]          = { AMD_FMT_VOP3, 0x210,"v_bfe_u32"          },
+    [AMD_V_LSHL_ADD_U32]     = { AMD_FMT_VOP3, 0x246,"v_lshl_add_u32"     },
+    [AMD_V_ADD3_U32]         = { AMD_FMT_VOP3, 0x255,"v_add3_u32"         },
+
+    /* VOPC — GFX11: OP at [24:17], 8-bit field */
+    [AMD_V_CMP_EQ_U32]       = { AMD_FMT_VOPC, 0x4A, "v_cmp_eq_u32"       },
+    [AMD_V_CMP_NE_U32]       = { AMD_FMT_VOPC, 0x4D, "v_cmp_ne_u32"       },
+    [AMD_V_CMP_LT_U32]       = { AMD_FMT_VOPC, 0x49, "v_cmp_lt_u32"       },
+    [AMD_V_CMP_LE_U32]       = { AMD_FMT_VOPC, 0x4B, "v_cmp_le_u32"       },
+    [AMD_V_CMP_GT_U32]       = { AMD_FMT_VOPC, 0x4C, "v_cmp_gt_u32"       },
+    [AMD_V_CMP_GE_U32]       = { AMD_FMT_VOPC, 0x4E, "v_cmp_ge_u32"       },
+    [AMD_V_CMP_LT_I32]       = { AMD_FMT_VOPC, 0x41, "v_cmp_lt_i32"       },
+    [AMD_V_CMP_LE_I32]       = { AMD_FMT_VOPC, 0x43, "v_cmp_le_i32"       },
+    [AMD_V_CMP_GT_I32]       = { AMD_FMT_VOPC, 0x44, "v_cmp_gt_i32"       },
+    [AMD_V_CMP_GE_I32]       = { AMD_FMT_VOPC, 0x46, "v_cmp_ge_i32"       },
+    [AMD_V_CMP_EQ_I32]       = { AMD_FMT_VOPC, 0x42, "v_cmp_eq_i32"       },
+    [AMD_V_CMP_NE_I32]       = { AMD_FMT_VOPC, 0x45, "v_cmp_ne_i32"       },
+    [AMD_V_CMP_EQ_F32]       = { AMD_FMT_VOPC, 0x12, "v_cmp_eq_f32"       },
+    [AMD_V_CMP_NE_F32]       = { AMD_FMT_VOPC, 0x1D, "v_cmp_neq_f32"      },
+    [AMD_V_CMP_LT_F32]       = { AMD_FMT_VOPC, 0x11, "v_cmp_lt_f32"       },
+    [AMD_V_CMP_LE_F32]       = { AMD_FMT_VOPC, 0x13, "v_cmp_le_f32"       },
+    [AMD_V_CMP_GT_F32]       = { AMD_FMT_VOPC, 0x14, "v_cmp_gt_f32"       },
+    [AMD_V_CMP_GE_F32]       = { AMD_FMT_VOPC, 0x16, "v_cmp_ge_f32"       },
+    [AMD_V_CMP_O_F32]        = { AMD_FMT_VOPC, 0x17, "v_cmp_o_f32"        },
+    [AMD_V_CMP_U_F32]        = { AMD_FMT_VOPC, 0x18, "v_cmp_u_f32"        },
+    [AMD_V_CMP_NLT_F32]      = { AMD_FMT_VOPC, 0x1E, "v_cmp_nlt_f32"      },
+    [AMD_V_CMP_NLE_F32]      = { AMD_FMT_VOPC, 0x1C, "v_cmp_nle_f32"      },
+    [AMD_V_CMP_NGT_F32]      = { AMD_FMT_VOPC, 0x1B, "v_cmp_ngt_f32"      },
+    [AMD_V_CMP_NGE_F32]      = { AMD_FMT_VOPC, 0x19, "v_cmp_nge_f32"      },
+    [AMD_V_CMP_NEQ_F32]      = { AMD_FMT_VOPC, 0x1D, "v_cmp_neq_f32"      },
+
+    /* DS */
+    [AMD_DS_READ_B32]         = { AMD_FMT_DS, 0x36, "ds_load_b32"         },
+    [AMD_DS_WRITE_B32]        = { AMD_FMT_DS, 0x0D, "ds_store_b32"        },
+    [AMD_DS_ADD_RTN_U32]      = { AMD_FMT_DS, 0x20, "ds_add_rtn_u32"      },
+    [AMD_DS_SUB_RTN_U32]      = { AMD_FMT_DS, 0x21, "ds_sub_rtn_u32"      },
+    [AMD_DS_AND_RTN_B32]      = { AMD_FMT_DS, 0x29, "ds_and_rtn_b32"      },
+    [AMD_DS_OR_RTN_B32]       = { AMD_FMT_DS, 0x2A, "ds_or_rtn_b32"       },
+    [AMD_DS_XOR_RTN_B32]      = { AMD_FMT_DS, 0x2B, "ds_xor_rtn_b32"      },
+    [AMD_DS_MIN_RTN_I32]      = { AMD_FMT_DS, 0x25, "ds_min_rtn_i32"      },
+    [AMD_DS_MAX_RTN_I32]      = { AMD_FMT_DS, 0x26, "ds_max_rtn_i32"      },
+    [AMD_DS_SWIZZLE_B32]      = { AMD_FMT_DS, 0x35, "ds_swizzle_b32"      },
+    [AMD_DS_BPERMUTE_B32]     = { AMD_FMT_DS, 0xB3, "ds_bpermute_b32"     },
+
+    /* FLAT_GBL — GFX11: OP at [25:18], seg at [17:16] (global=2) */
+    [AMD_GLOBAL_LOAD_DWORD]      = { AMD_FMT_FLAT_GBL, 0x14, "global_load_dword"      },
+    [AMD_GLOBAL_STORE_DWORD]     = { AMD_FMT_FLAT_GBL, 0x1A, "global_store_dword"     },
+    [AMD_GLOBAL_LOAD_DWORDX2]    = { AMD_FMT_FLAT_GBL, 0x15, "global_load_dwordx2"    },
+    [AMD_GLOBAL_STORE_DWORDX2]   = { AMD_FMT_FLAT_GBL, 0x1B, "global_store_dwordx2"   },
+    [AMD_GLOBAL_ATOMIC_ADD]      = { AMD_FMT_FLAT_GBL, 0x35, "global_atomic_add"      },
+    [AMD_GLOBAL_ATOMIC_SUB]      = { AMD_FMT_FLAT_GBL, 0x36, "global_atomic_sub"      },
+    [AMD_GLOBAL_ATOMIC_AND]      = { AMD_FMT_FLAT_GBL, 0x3C, "global_atomic_and"      },
+    [AMD_GLOBAL_ATOMIC_OR]       = { AMD_FMT_FLAT_GBL, 0x3D, "global_atomic_or"       },
+    [AMD_GLOBAL_ATOMIC_XOR]      = { AMD_FMT_FLAT_GBL, 0x3E, "global_atomic_xor"      },
+    [AMD_GLOBAL_ATOMIC_SMIN]     = { AMD_FMT_FLAT_GBL, 0x38, "global_atomic_smin"     },
+    [AMD_GLOBAL_ATOMIC_SMAX]     = { AMD_FMT_FLAT_GBL, 0x3A, "global_atomic_smax"     },
+    [AMD_GLOBAL_ATOMIC_SWAP]     = { AMD_FMT_FLAT_GBL, 0x33, "global_atomic_swap"     },
+    [AMD_GLOBAL_ATOMIC_CMPSWAP]  = { AMD_FMT_FLAT_GBL, 0x34, "global_atomic_cmpswap"  },
+
+    /* FLAT_SCR — GFX11: seg=1 (scratch) */
+    [AMD_SCRATCH_LOAD_DWORD]     = { AMD_FMT_FLAT_SCR, 0x14, "scratch_load_dword"     },
+    [AMD_SCRATCH_STORE_DWORD]    = { AMD_FMT_FLAT_SCR, 0x1A, "scratch_store_dword"    },
+
+    /* Pseudo */
+    [AMD_PSEUDO_PHI]             = { AMD_FMT_PSEUDO, 0, "PSEUDO_PHI"  },
+    [AMD_PSEUDO_COPY]            = { AMD_FMT_PSEUDO, 0, "PSEUDO_COPY" },
+    [AMD_PSEUDO_DEF]             = { AMD_FMT_PSEUDO, 0, "PSEUDO_DEF"  },
+};
