@@ -204,26 +204,6 @@ The IR (BIR) is target-independent. The backend is cleanly separated. Adding a n
 - **RISC-V Vector Extension** - For when GPUs are too mainstream and you want to run CUDA on a softcore.
 
 
-
-## GFX10/GFX11/GFX12 Encoding Notes (For The Brave)
-
-If you're considering writing your own AMDGPU backend, here are the things that will ruin your afternoon:
-
-- SOP1 prefix is `0xBE800000`, not what you'd expect from the docs
-- SOPC prefix is `0xBF000000`
-- VOP3 VDST is at bits `[7:0]`, not `[15:8]` like a sensible person would assume
-- Null SADDR is `0x7C` for global memory, `0xFC` for scratch
-- RDNA 3 is Wave32 by default, not Wave64 like GCN
-- The ISA manual is 500 pages and contradicts itself at least twice
-- GFX12 FLAT/GLOBAL OP field is at `[21:14]`, not `[20:13]` like the RDNA4 PDF claims. Trust the machine-readable ISA, not the PDF
-- GFX10 SMEM prefix is `0x3C` (not `0x3D`), with different bit layout for SDATA/SBASE/OP
-- GFX10 VOP3 prefix is `0x34` (not `0x35`)
-- GFX10 FLAT/GLOBAL DW1 has DATA and SADDR swapped vs GFX11, null SADDR is `0x7D`
-- GFX10 waitcnt SIMM16 layout: `[15:14]=vmcnt[5:4] [13:11]=expcnt [9:4]=lgkmcnt [3:0]=vmcnt[3:0]`
-- Nearly every hw_opcode is renumbered between GFX10 and GFX11
-
-`amdgpu_emit.c` is a testament to reading those pages so you don't have to.
-
 ## Contact
 
 Found a bug? Want to discuss the finer points of AMDGPU instruction encoding? Need someone to commiserate with about the state of GPU computing?
