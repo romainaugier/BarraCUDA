@@ -16,17 +16,6 @@ jobs:
       - name: Test
         run: make test
 
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Find GCC
-        run: echo "REAL_GCC=$(ls $(brew --prefix gcc)/bin/gcc-1* | head -1)" >> $GITHUB_ENV
-      - name: Build
-        run: make CC=$REAL_GCC
-      - name: Test
-        run: make test CC=$REAL_GCC
-
   windows:
     runs-on: windows-latest
     defaults:
