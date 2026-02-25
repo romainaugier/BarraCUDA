@@ -6,7 +6,7 @@ This is what happens when you look at NVIDIA's walled garden and think "how hard
 
 **UPDATE: RDNA 2, 3 and 4 now supported.** `--gfx1030` / `--gfx1100` / `--gfx1200`
 
-**UPDATE: HSA runtime launcher added.** Compile kernels and dispatch them on real AMD hardware — no HIP, no hipcc. See [Runtime Launcher](#runtime-launcher).
+**UPDATE: HSA runtime launcher added.** Compile kernels and dispatch them on AMD hardware. See [Runtime Launcher](#runtime-launcher).
 
 ## What It Does
 
