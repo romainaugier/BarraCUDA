@@ -31,14 +31,22 @@ static void err_miss(void)
 TH_REG("errors", err_miss)
 
 /* ---- errors: bad output directory ---- */
-/* Compiler prints the error but exits 0. One day that'll get fixed.
- * For now, we check the error message exists. */
+/* /dev/null is a file, not a directory. You can't mkdir inside it.
+ * Works on every Unix. On Windows we use NUL, same idea. */
 
 static void err_odir(void)
 {
-    int rc = th_run(BC_BIN " --amdgpu-bin tests/vector_add.cu "
-                    "-o Z:\\nonexistent\\dir\\out.hsaco",
-                    obuf, TH_BUFSZ);
+    char cmd[TH_BUFSZ];
+#ifdef _WIN32
+    snprintf(cmd, TH_BUFSZ,
+             BC_BIN " --amdgpu-bin tests/vector_add.cu "
+             "-o NUL\\impossible\\out.hsaco");
+#else
+    snprintf(cmd, TH_BUFSZ,
+             BC_BIN " --amdgpu-bin tests/vector_add.cu "
+             "-o /dev/null/impossible/out.hsaco");
+#endif
+    int rc = th_run(cmd, obuf, TH_BUFSZ);
     (void)rc;
     CHECK(strstr(obuf, "cannot open") != NULL ||
           strstr(obuf, "error") != NULL);

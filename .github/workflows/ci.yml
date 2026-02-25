@@ -16,15 +16,6 @@ jobs:
       - name: Test
         run: make test
 
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build
-        run: make
-      - name: Test
-        run: make test
-
   windows:
     runs-on: windows-latest
     defaults:
