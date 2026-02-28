@@ -40,7 +40,7 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 │       ↓                      ↓                       │       │
 │  .hsaco ELF            compute/reader/writer/host    │       │
 │       ↓                      ↓                       │       │
-│  Your kernel runs on silicon that NVIDIA doesn't control     │
+│  Your kernel runs on silicon you own                 │       |
 └──────────────────────────────────────────────────────────────┘
 ```
 
