@@ -364,8 +364,7 @@ static int looks_like_cast(parser_t *P)
     int t = peek_type(P, 1);
     if (is_type_keyword(t)) return 1;
     if (t == TOK_CU_DEVICE || t == TOK_CU_HOST) return 1;
-    if (t == TOK_CONST_CAST || t == TOK_STATIC_CAST ||
-        t == TOK_DYNAMIC_CAST || t == TOK_REINTERPRET_CAST) return 1;
+    /* C++ casts handled directly in parse_primary now */
     if (t == TOK_IDENT && peek_type(P, 2) == TOK_RPAREN &&
         can_start_unary(peek_type(P, 3)))
         return 1;
@@ -433,6 +432,25 @@ static uint32_t parse_primary(parser_t *P)
             add_child(P, scope, rhs);
             return scope;
         }
+        /* C++ aggregate init: TypeName { expr, expr, ... } */
+        if (cur_type(P) == TOK_LBRACE) {
+            uint32_t type_node = alloc_node(P, AST_TYPE_SPEC);
+            P->nodes[type_node].d.btype.kind = TYPE_NAME;
+            add_child(P, type_node, n);
+            uint32_t ilist = alloc_node(P, AST_INIT_LIST);
+            advance(P);
+            while (cur_type(P) != TOK_RBRACE && cur_type(P) != TOK_EOF) {
+                uint32_t elem = parse_expr(P, 21);
+                add_child(P, ilist, elem);
+                if (!match(P, TOK_COMMA)) break;
+            }
+            expect(P, TOK_RBRACE);
+            uint32_t cast = alloc_node(P, AST_CAST);
+            add_child(P, cast, type_node);
+            add_child(P, cast, ilist);
+            P->nodes[cast].d.oper.flags = 0;
+            return cast;
+        }
         return n;
     }
     if (t == TOK_SIZEOF) {
@@ -454,6 +472,24 @@ static uint32_t parse_primary(parser_t *P)
             add_child(P, n, inner);
         }
         return n;
+    }
+    if (t == TOK_STATIC_CAST || t == TOK_CONST_CAST ||
+        t == TOK_DYNAMIC_CAST || t == TOK_REINTERPRET_CAST) {
+        advance(P);
+        expect(P, TOK_LT);
+        uint16_t quals = 0, cuda = 0;
+        uint32_t type_node = parse_type_spec(P, &quals, &cuda);
+        int ptr_depth = 0;
+        while (cur_type(P) == TOK_STAR) { advance(P); ptr_depth++; }
+        expect(P, TOK_GT);
+        expect(P, TOK_LPAREN);
+        uint32_t cast = alloc_node(P, AST_CAST);
+        add_child(P, cast, type_node);
+        P->nodes[cast].d.oper.flags = ptr_depth;
+        uint32_t operand = parse_expr(P, 0);
+        add_child(P, cast, operand);
+        expect(P, TOK_RPAREN);
+        return cast;
     }
     if (looks_like_cast(P)) {
         uint32_t saved = P->pos;
