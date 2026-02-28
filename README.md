@@ -16,7 +16,7 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     BarraCUDA Pipeline                        │
+│                     BarraCUDA Pipeline                       │
 ├──────────────────────────────────────────────────────────────┤
 │  Source (.cu)                                                │
 │       ↓                                                      │
@@ -30,17 +30,17 @@ Takes CUDA C source code, the same `.cu` files you'd feed to `nvcc`, and compile
 │       ↓                                                      │
 │  BIR (BarraCUDA IR) → SSA form, typed instructions           │
 │       ↓                                                      │
-│  mem2reg → Promotes allocas to SSA registers                  │
+│  mem2reg → Promotes allocas to SSA registers                 │
 │       ↓                                                      │
 │  Instruction Selection                                       │
-│       ├──────────────────────┬───────────────────────┤        │
-│       ↓ AMD                  ↓ Tenstorrent            │        │
-│  VGPR/SGPR regalloc    Tensix SFPU isel              │        │
-│       ↓                      ↓                        │        │
-│  GFX10/11/12 encoding  Metalium C++ emission         │        │
-│       ↓                      ↓                        │        │
-│  .hsaco ELF            compute/reader/writer/host    │        │
-│       ↓                      ↓                        │        │
+│       ├──────────────────────┬───────────────────────┤       │
+│       ↓ AMD                  ↓ Tenstorrent           │       │
+│  VGPR/SGPR regalloc    Tensix SFPU isel              │       │
+│       ↓                      ↓                       │       │
+│  GFX10/11/12 encoding  Metalium C++ emission         │       │
+│       ↓                      ↓                       │       │
+│  .hsaco ELF            compute/reader/writer/host    │       │
+│       ↓                      ↓                       │       │
 │  Your kernel runs on silicon that NVIDIA doesn't control     │
 └──────────────────────────────────────────────────────────────┘
 ```
