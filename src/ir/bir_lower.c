@@ -826,6 +826,36 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
         /* Assignment */
         if (op == TOK_ASSIGN) {
             uint32_t ptr = lower_lvalue(L, lhs_n);
+
+            /* Bare init list: pixel = { r, g, b } → field-by-field store */
+            if (ND(L, rhs_n)->type == AST_INIT_LIST) {
+                uint32_t pt = ref_type(L, ptr);
+                uint32_t st = ptr_inner(L, pt);
+                struct_def_t *sd = NULL;
+                for (int si = 0; si < L->nstructs; si++) {
+                    if (L->structs[si].bir_type == st) { sd = &L->structs[si]; break; }
+                }
+                if (sd) {
+                    uint32_t el = ND(L, rhs_n)->first_child;
+                    for (int fi = 0; fi < sd->num_fields && el; fi++) {
+                        uint32_t val = lower_expr(L, el);
+                        uint32_t fpt = bir_type_ptr(L->M, sd->field_types[fi], BIR_AS_PRIVATE);
+                        uint32_t ci  = BIR_MAKE_CONST(bir_const_int(L->M, bir_type_int(L->M, 32), fi));
+                        uint32_t gep = emit(L, BIR_GEP, fpt, 2, 0);
+                        set_op(L, gep, 0, ptr);
+                        set_op(L, gep, 1, ci);
+                        uint32_t s = emit(L, BIR_STORE, bir_type_void(L->M), 2, 0);
+                        set_op(L, s, 0, val);
+                        set_op(L, s, 1, BIR_MAKE_VAL(gep));
+                        el = ND(L, el)->next_sibling;
+                    }
+                    /* Return the LHS pointer dereferenced, in case used as expr */
+                    uint32_t ld = emit(L, BIR_LOAD, st, 1, 0);
+                    set_op(L, ld, 0, ptr);
+                    return BIR_MAKE_VAL(ld);
+                }
+            }
+
             uint32_t val = lower_expr(L, rhs_n);
             uint32_t t_void = bir_type_void(L->M);
             uint32_t st = emit(L, BIR_STORE, t_void, 2, 0);
@@ -1614,6 +1644,37 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
         uint32_t type_n = n->first_child;
         uint32_t expr_n = ND(L, type_n)->next_sibling;
         int pdepth      = n->d.oper.flags;
+
+        /* C++ aggregate init: Type{expr, ...} → alloca + field stores + load */
+        if (expr_n && ND(L, expr_n)->type == AST_INIT_LIST) {
+            uint32_t st = resolve_type(L, type_n, pdepth, 0);
+            struct_def_t *sd = NULL;
+            for (int si = 0; si < L->nstructs; si++) {
+                if (L->structs[si].bir_type == st) { sd = &L->structs[si]; break; }
+            }
+            if (sd) {
+                uint32_t ptr_t = bir_type_ptr(L->M, st, BIR_AS_PRIVATE);
+                uint32_t alloca = emit(L, BIR_ALLOCA, ptr_t, 0, 0);
+                uint32_t el = ND(L, expr_n)->first_child;
+                for (int fi = 0; fi < sd->num_fields && el; fi++) {
+                    uint32_t val = lower_expr(L, el);
+                    uint32_t fpt = bir_type_ptr(L->M, sd->field_types[fi],
+                                                BIR_AS_PRIVATE);
+                    uint32_t ci = BIR_MAKE_CONST(bir_const_int(L->M,
+                        bir_type_int(L->M, 32), fi));
+                    uint32_t gep = emit(L, BIR_GEP, fpt, 2, 0);
+                    set_op(L, gep, 0, BIR_MAKE_VAL(alloca));
+                    set_op(L, gep, 1, ci);
+                    uint32_t store = emit(L, BIR_STORE, bir_type_void(L->M), 2, 0);
+                    set_op(L, store, 0, val);
+                    set_op(L, store, 1, BIR_MAKE_VAL(gep));
+                    el = ND(L, el)->next_sibling;
+                }
+                uint32_t ld = emit(L, BIR_LOAD, st, 1, 0);
+                set_op(L, ld, 0, BIR_MAKE_VAL(alloca));
+                return BIR_MAKE_VAL(ld);
+            }
+        }
 
         uint32_t dst_t  = resolve_type(L, type_n, pdepth, 0);
         uint32_t val    = lower_expr(L, expr_n);
