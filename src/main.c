@@ -7,6 +7,7 @@
 #include "bir_cfold.h"
 #include "bir_dce.h"
 #include "amdgpu.h"
+#include "sched.h"
 #include "tensix.h"
 #include <stdlib.h>
 
@@ -65,6 +66,7 @@ static void usage(const char *prog)
         "  --no-mem2reg  Skip mem2reg optimization pass\n"
         "  --no-cfold    Skip constant folding\n"
         "  --no-dce      Skip dead code elimination\n"
+        "  --no-sched    Skip instruction scheduling\n"
         "  --sema        Run semantic analysis and dump types\n"
         "  --pp          Preprocess only and print result\n"
         "  --no-pp       Skip preprocessor\n"
@@ -96,6 +98,7 @@ int main(int argc, char *argv[])
     int no_mem2reg = 0;
     int no_cfold = 0;
     int no_dce = 0;
+    int no_sched = 0;
     int no_pp = 0;
     amd_target_t amd_target = AMD_TARGET_GFX1100;
     uint32_t     amd_elfm  = 0x41;       /* EF_AMDGPU_MACH for exact chip */
@@ -187,6 +190,8 @@ int main(int argc, char *argv[])
             no_cfold = 1;
         else if (strcmp(argv[i], "--no-dce") == 0)
             no_dce = 1;
+        else if (strcmp(argv[i], "--no-sched") == 0)
+            no_sched = 1;
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             usage(argv[0]);
             return 0;
@@ -364,6 +369,8 @@ int main(int argc, char *argv[])
                              "%s", amd_chip);
                     int arc = amdgpu_compile(bir_module, amd);
                     if (arc == BC_OK) {
+                        if (!no_sched)
+                            amdgpu_sched(amd);
                         amdgpu_regalloc(amd);
                         if (mode_amdgpu_bin)
                             amdgpu_emit_elf(amd,
