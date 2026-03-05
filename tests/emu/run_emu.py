@@ -138,7 +138,9 @@ def ipl3(ARCHV="rdna3"):
 # ---- ELF Parser ----
 
 def prs_elf(FDATA):
-    """Extract .text from ELF64 LE."""
+    """Extract .rodata (KD) + .text (code) from ELF64 LE.
+    Returns KD bytes + code bytes concatenated so prs_kd still
+    reads offset 0 as the kernel descriptor."""
     if FDATA[:4] != b'\x7fELF':
         raise ValueError("not ELF")
     SHOFF = struct.unpack_from('<Q', FDATA, 40)[0]
@@ -148,15 +150,25 @@ def prs_elf(FDATA):
     SSOFF = struct.unpack_from('<Q', FDATA, SHOFF + STIDX * SHENT + 24)[0]
     SSSIZ = struct.unpack_from('<Q', FDATA, SHOFF + STIDX * SHENT + 32)[0]
     SSTAB = FDATA[SSOFF : SSOFF + SSSIZ]
+    SECTS = {}
     for i in range(SHNUM):
         SHBAS = SHOFF + i * SHENT
         NMOFF = struct.unpack_from('<I', FDATA, SHBAS)[0]
         SNAME = SSTAB[NMOFF : SSTAB.index(b'\0', NMOFF)].decode()
-        if SNAME == '.text':
-            TXOFF = struct.unpack_from('<Q', FDATA, SHBAS + 24)[0]
-            TXSIZ = struct.unpack_from('<Q', FDATA, SHBAS + 32)[0]
-            return FDATA[TXOFF : TXOFF + TXSIZ]
-    raise ValueError("no .text")
+        SOFF  = struct.unpack_from('<Q', FDATA, SHBAS + 24)[0]
+        SSIZ  = struct.unpack_from('<Q', FDATA, SHBAS + 32)[0]
+        SECTS[SNAME] = FDATA[SOFF : SOFF + SSIZ]
+    # New layout: KD in .rodata, code in .text
+    if '.rodata' in SECTS and '.text' in SECTS:
+        KDATA = SECTS['.rodata']
+        TDATA = SECTS['.text']
+        # Pad KD to 256 bytes (entry_byte_offset) then append code
+        PAD   = b'\x00' * (256 - len(KDATA))
+        return KDATA + PAD + TDATA
+    # Legacy layout: KD + code both in .text
+    if '.text' in SECTS:
+        return SECTS['.text']
+    raise ValueError("no .text or .rodata")
 
 def prs_arch(FDATA):
     """Extract arch from ELF e_flags. Returns 'rdna3' or 'rdna4'."""
