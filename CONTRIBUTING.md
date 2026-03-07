@@ -2,77 +2,96 @@
 
 You're more than welcome to submit a PR. I'm happy to look at it and give it a fair shake.
 
-That said, this project has a particular style and a particular set of rules. They're not arbitrary because I just wanna, they exist because they eliminate entire categories of bugs. If your PR follows them, we'll get along swimmingly. 
+If you're reading this and going "Ah heck I don't think I can do that, I'll get it wrong", that's perfectly fine. Submit the PR anyway and I am always happy to guide and assist. I am always learning myself.
 
-If you're reading this and going "Ah heck I don't think I can do that, I'll get it wrong". Thats perfectly fine. Again, you're more than welcome to submit a pr and I am always happy to guide and assist. I am always learning myself. 
+## The Style
 
-## Coding Standards
+BarraCUDA is written in a defensive C99 style. I spent too much time staring at NASA code in my Halmat project and it stuck. The rules exist because they eliminate entire categories of bugs by construction rather than by testing.
 
-BarraCUDA is written in a defensive C99 style designed for reliability. The rules are simple:
+**No dynamic allocation in hot paths.** Pre-allocated, fixed-size buffers. If a pool overflows, return a sentinel, never corrupt a counter. If you can't have unbounded allocation you can't have memory leaks.
 
-- **No dynamic allocation in hot paths.** Pre-allocated, fixed-size buffers. If a pool overflows, return a sentinel — never corrupt a counter.
-- **No recursion.** Every function call is a known-depth call. Stack usage is predictable.
-- **All loops must be bounded.** If you're iterating to a fixpoint, there's a guard counter. No infinite loops, no "this should always converge."
-- **Bounds-check array accesses** from external or untrusted indices. Trust internal bookkeeping, verify everything else.
-- **Stack-allocated where possible.** Deterministic behaviour, deterministic cleanup.
-- **Strict error checking.** Check return values. Handle the failure path.
+**No recursion.** Every function call is a known-depth call. Stack usage is predictable. If you can't recurse you can't blow the stack.
 
-The rationale is straightforward: if you can't have unbounded allocation, you can't have memory leaks. If you can't have recursion, you can't have stack overflows. If every loop is bounded, you can't hang. This style eliminates a large set of bugs by construction rather than by testing.
+**All loops must be bounded.** If you're iterating to a fixpoint, there's a guard counter. No infinite loops, no "this should always converge." If every loop is bounded you can't hang.
+
+**Bounds-check array accesses** from external or untrusted indices. Trust internal bookkeeping, verify everything else.
+
+**Stack-allocated where possible.** Deterministic behaviour, deterministic cleanup.
+
+**Strict error checking.** Check return values. Handle the failure path.
+
+**No floats where integers will do.** If you're comparing ratios, cross-multiply. Floating point is for GPU shader maths, not compiler internals.
+
+### Naming
+
+Function and variable names are short, 4-7 characters. Think of it like reading a motorway sign at 100km/h, you want "SH1 NORTH" not "STATE_HIGHWAY_ONE_NORTHBOUND_DIRECTION". When you're reading a thousand lines of instruction selector at 2am you want `ra_gc` not `regalloc_graphcolor`. Look at the newer code for the pattern: `isel_emit`, `mk_hash`, `enc_vop3`, `xt_meta`, `dce_copy`.
+
+Some older code still uses longer names from when I wanted things readable for reviewers on Reddit. That's changed now. If you're touching a file and spot a verbose name, feel free to shorten it.
 
 ### Comments
 
-Ideally minimal. 
-
-Yes I know some of my comments in there have some pearlers but that is okay! 
+Comments explain the *why*, not the *what*. Any C programmer can read the code and understand what it does. The comments are there to explain intent, context, and the reasoning behind non-obvious decisions.
 
 Section headers look like this:
 ```c
 /* ---- Section Name ---- */
 ```
 
-Humour is welcome. Arrogance is not.
+Humour is welcome and encouraged. You're welcome to add your own personality and wit to anything you write. Arrogance is not welcome. Self-deprecating dry wit is the house style but it's not mandatory.
 
-## What's Useful
+When refactoring or moving code, please keep existing comments with it. They took thought to write.
 
-Check `Issues` for current priorities. At time of writing, the most impactful areas are:
+## Where to Help
 
-- **Language features:** bare `unsigned`, literal suffixes, `const`, parameter reassignment
-- **Backend work:** New architecture targets (see below)
-- **Test cases:** Real CUDA kernels that break things are genuinely valuable
+Check `Issues` for current priorities. In general the most impactful areas are:
 
-## What's Less Useful
+**Language features** that real CUDA code needs, things the parser or sema doesn't handle yet. If you've got a .cu file that doesn't compile, that's a useful bug report even if you don't have a fix.
 
-- Cosmetic README rewrites
-- Drive-by reformatting or linter passes
-- Adding abstraction layers, feature flags, or "improvements" that weren't asked for
-- Wrapping working code in error handling for scenarios that can't happen
+**Backend work.** New architecture targets are always interesting. The compiler is designed for this, BIR is backend-agnostic and each target is self-contained. If you're a deep tech startup and need CUDA support for your hardware, reach out.
 
-If in doubt, open an issue first. A two-minute conversation saves everyone time.
+**Test cases.** Real CUDA kernels that break things are genuinely valuable. The weirder the better.
 
-## GPU Architectures
+**Optimisation passes.** DCE, constant folding, and instruction scheduling already exist. If you want to add something like loop unrolling or better spill heuristics, open an issue first so we can chat about the approach.
 
-BarraCUDA currently targets AMD RDNA 3 and 4 (gfx1100/1200). That is by no means the only architectures on the roadmap.
+If you're not sure whether something is worth a PR, open an issue. I also love to, as we say here in New Zealand, spin a few yarns. A quick conversation up front saves everyone time.
 
-The compiler architecture is purposefully backend-agnostic: the frontend lowers to BIR (BarraCUDA IR) in SSA form, and each backend is a self-contained target that consumes BIR. Adding a new GPU architecture means writing a new instruction selector and emitter — the rest of the pipeline is shared.
+## GPU Targets
 
-If you're a deep tech startup and you need CUDA support for your hardware, you're encouraged to reach out. I'm actively interested in expanding target support.
+BarraCUDA currently supports:
+
+- **CDNA 2** (gfx90a, MI250)
+- **CDNA 3** (gfx942, MI300X)
+- **RDNA 2** (gfx1030 family)
+- **RDNA 3** (gfx1100 family, gfx1150 family)
+- **RDNA 4** (gfx1200 family)
+
+The frontend lowers to BIR (BarraCUDA IR) in SSA form. Each backend is a self-contained target that consumes BIR. Adding a new GPU architecture means writing a new instruction selector and emitter, the rest of the pipeline is shared.
 
 ## Building & Testing
 
 ```bash
-# Build (requires LLVM 18 for disassembly verification only — the compiler itself is zero-LLVM)
+# Build
 make
 
-# Run the emulator test suite
+# Run the test suite
+make test
+
+# Run the emulator test suite (RDNA3, requires tinygrad mockgpu in WSL)
 python tests/emu/run_emu.py
 ```
 
 Verify your changes don't introduce encoding regressions:
 ```bash
 llvm-objdump -d --mcpu=gfx1100 output.hsaco
-# Zero decode failures = good/bueno!
+# Zero decode failures = good
 ```
 
 ## License
 
 BarraCUDA is Apache 2.0. By submitting a PR, you agree your contribution is licensed under the same terms.
+
+---
+
+You've read this long, here's your prize, the island across the harbour from my house!
+
+![Rangitoto](docs/harbour.png)
