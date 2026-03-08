@@ -49,11 +49,11 @@ This is a deliberate choice. The best ideas in computing weren't all written in 
 
 **How it works in practice:**
 
-For issues and PR descriptions, write in whatever language you think in. Then add an English translation below it. The translation doesn't have to be perfect — Google Translate, DeepL, LLM's, whatever you've got. We'll work it out together.
+For issues and PR descriptions, write in whatever language you think in. Then add an English translation below it. The translation doesn't have to be perfect. Google Translate, DeepL, LLM's, whatever you've got. We'll work it out together.
 
 If you use an LLM (Chatgpt, Deepseek, Mistral, A russian LLM run in a basement somewhere) please provide the prompt you used with the output!
 
-For code comments, same deal. Multilingual comments are welcome and encouraged. Humour especially — if you've got a good joke in French or a dry observation in Japanese, put it in. Just add the English so everyone can laugh.
+For code comments, same deal. Multilingual comments are welcome and encouraged. Humour especially. if you've got a good joke in French or a dry observation in Japanese, put it in. Just add the English so everyone can laugh.
 
 ```c
 /* Ceci n'est pas une pipe(line).
