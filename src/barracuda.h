@@ -40,6 +40,9 @@ typedef struct {
     bc_loc_t loc;
     char     msg[256];
     int      code;
+    uint16_t eid;      /* bc_eid_t — language-neutral error ID */
 } bc_error_t;
+
+#include "fe/bc_err.h"
 
 #endif /* BARRACUDA_H */

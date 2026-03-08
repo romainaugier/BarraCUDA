@@ -80,6 +80,7 @@ static void usage(const char *prog)
         "  --gfx1200     Target RDNA 4 (gfx1200)\n"
         "  --tensix      Compile to TT-Metalium C++ (Tensix SFPU)\n"
         "  -o <file>     Output file (for --amdgpu-bin, --tensix)\n"
+        "  --lang <file> Load translated error messages\n"
         "  --help        Show this message\n"
         "\n", prog);
 }
@@ -88,6 +89,7 @@ int main(int argc, char *argv[])
 {
     const char *file = NULL;
     const char *output_file = NULL;
+    const char *lang_file = NULL;
     int mode_pp = 0;
     int mode_lex = 0;
     int mode_parse = 0;
@@ -174,6 +176,8 @@ int main(int argc, char *argv[])
             { amd_target = AMD_TARGET_GFX1200; amd_elfm = 0x4e; amd_chip = "gfx1201"; }
         else if (strcmp(argv[i], "--tensix") == 0)
             mode_tensix = 1;
+        else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc)
+            lang_file = argv[++i];
         else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
             output_file = argv[++i];
         else if (strcmp(argv[i], "-I") == 0 && i + 1 < argc) {
@@ -217,6 +221,9 @@ int main(int argc, char *argv[])
         !mode_amdgpu && !mode_amdgpu_bin && !mode_tensix)
         mode_parse = 1;
 
+    /* Load translation file before any diagnostics fire */
+    if (lang_file) bc_eload(lang_file);
+
     uint32_t src_len = 0;
     if (read_file(file, source_buf, BC_MAX_SOURCE, &src_len) != BC_OK)
         return 1;
@@ -253,8 +260,9 @@ int main(int argc, char *argv[])
 
         if (pp->num_errors > 0) {
             for (int i = 0; i < pp->num_errors; i++) {
-                fprintf(stderr, "%s:%u: preproc error: %s\n",
-                        file, pp->errors[i].loc.line, pp->errors[i].msg);
+                fprintf(stderr, "%s:%u: E%03u: %s\n",
+                        file, pp->errors[i].loc.line,
+                        pp->errors[i].eid, pp->errors[i].msg);
             }
         }
 
@@ -275,9 +283,9 @@ int main(int argc, char *argv[])
 
     if (L.num_errors > 0) {
         for (int i = 0; i < L.num_errors; i++) {
-            fprintf(stderr, "%s:%u:%u: error: %s\n",
+            fprintf(stderr, "%s:%u:%u: E%03u: %s\n",
                     file, L.errors[i].loc.line, L.errors[i].loc.col,
-                    L.errors[i].msg);
+                    L.errors[i].eid, L.errors[i].msg);
         }
     }
 
@@ -295,9 +303,9 @@ int main(int argc, char *argv[])
 
         if (P.num_errors > 0) {
             for (int i = 0; i < P.num_errors; i++) {
-                fprintf(stderr, "%s:%u:%u: parse error: %s\n",
+                fprintf(stderr, "%s:%u:%u: E%03u: %s\n",
                         file, P.errors[i].loc.line, P.errors[i].loc.col,
-                        P.errors[i].msg);
+                        P.errors[i].eid, P.errors[i].msg);
             }
         }
 
@@ -322,9 +330,10 @@ int main(int argc, char *argv[])
 
             if (sema_ctx->num_errors > 0) {
                 for (int i = 0; i < sema_ctx->num_errors; i++) {
-                    fprintf(stderr, "%s:%u:%u: sema: %s\n",
-                            file, sema_ctx->errors[i].line,
-                            sema_ctx->errors[i].col,
+                    fprintf(stderr, "%s:%u:%u: E%03u: %s\n",
+                            file, sema_ctx->errors[i].loc.line,
+                            sema_ctx->errors[i].loc.col,
+                            sema_ctx->errors[i].eid,
                             sema_ctx->errors[i].msg);
                 }
             }
@@ -339,12 +348,23 @@ int main(int argc, char *argv[])
 
         if ((mode_ir || mode_amdgpu || mode_amdgpu_bin || mode_tensix) &&
             P.num_errors == 0) {
+            bc_error_t lower_errs[BC_MAX_ERRORS];
+            int num_lower_errs = 0;
             bir_module = (bir_module_t *)malloc(sizeof(bir_module_t));
             if (!bir_module) {
                 fprintf(stderr, "error: failed to allocate BIR module\n");
                 return 1;
             }
-            int lrc = bir_lower(&P, root, bir_module, sema_ctx);
+            int lrc = bir_lower(&P, root, bir_module, sema_ctx,
+                                lower_errs, &num_lower_errs);
+            if (num_lower_errs > 0) {
+                for (int i = 0; i < num_lower_errs; i++) {
+                    fprintf(stderr, "%s:%u:%u: E%03u: %s\n",
+                            file, lower_errs[i].loc.line,
+                            lower_errs[i].loc.col,
+                            lower_errs[i].eid, lower_errs[i].msg);
+                }
+            }
             if (lrc == BC_OK) {
                 if (!no_mem2reg)
                     bir_mem2reg(bir_module);

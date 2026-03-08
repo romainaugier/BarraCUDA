@@ -212,6 +212,12 @@ The IR (BIR) is target-independent. The backend is cleanly separated. Adding a n
 - **RISC-V Vector Extension** - For when GPUs are too mainstream and you want to run CUDA on a softcore.
 
 
+## Contributing
+
+**Issues and PRs in any language are welcome** — just include an English translation alongside. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide on style, naming, and where to help.
+
+The HLASM-style short identifiers (`ra_gc`, `mk_hash`, `enc_vop3`) are culturally neutral by accident,there's nothing English about a 5-character label. If you've found a bug or have an idea, write it up in whatever language you think in.
+
 ## Contact
 
 Found a bug? Want to discuss the finer points of AMDGPU instruction encoding? Need someone to commiserate with about the state of GPU computing?

@@ -1478,7 +1478,7 @@ static void isel_param(uint32_t idx, const bir_inst_t *I)
         uint32_t vr = map_bir_val(idx, 1);
         S.amd->val_file[idx] = 1;
         S.amd->reg_file[vr] = 1;
-        if (param_idx < 16)
+        if (param_idx < 32)
             emit1(AMD_V_MOV_B32, mop_vreg_v((uint16_t)vr), mop_vgpr((uint16_t)param_idx));
     }
 }

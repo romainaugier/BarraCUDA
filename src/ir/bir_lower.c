@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 /*
  * AST-to-BIR lowering.
@@ -142,7 +143,7 @@ static int text_eq(const lower_t *L, uint32_t node, const char *s)
         && memcmp(L->src + n->d.text.offset, s, (size_t)len) == 0;
 }
 
-static void lower_error(lower_t *L, uint32_t node, const char *msg)
+static void lower_error(lower_t *L, uint32_t node, bc_eid_t eid, ...)
 {
     if (L->nerrors < BC_MAX_ERRORS) {
         bc_error_t *e = &L->errors[L->nerrors++];
@@ -151,8 +152,13 @@ static void lower_error(lower_t *L, uint32_t node, const char *msg)
             e->loc.line = n->line;
             e->loc.col  = n->col;
         }
+        e->loc.offset = 0;
         e->code = BC_ERR_LOWER;
-        snprintf(e->msg, sizeof(e->msg), "%s", msg);
+        e->eid  = (uint16_t)eid;
+        va_list ap;
+        va_start(ap, eid);
+        vsnprintf(e->msg, sizeof(e->msg), bc_efmt(eid), ap);
+        va_end(ap);
     }
 }
 
@@ -345,7 +351,7 @@ static uint32_t find_or_create_label(lower_t *L, const char *name)
         if (strcmp(L->labels[i].name, name) == 0)
             return L->labels[i].block;
     if (L->nlabels >= 256) {
-        lower_error(L, 0, "too many labels (max 256)");
+        lower_error(L, 0, BC_E100);
         return L->cur_block;
     }
     int idx = L->nlabels++;
@@ -761,7 +767,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             }
         }
         if (!s) {
-            lower_error(L, node, "undefined variable");
+            lower_error(L, node, BC_E101);
             return BIR_VAL_NONE;
         }
         if (s->is_alloca) {
@@ -1002,7 +1008,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             int fp       = is_float_type(L, lt);
             int opc      = bin_op_code(op, fp, node_is_unsigned(L, node));
             if (opc < 0) {
-                lower_error(L, node, "unsupported binary op");
+                lower_error(L, node, BC_E102);
                 return lhs;
             }
             uint32_t inst = emit(L, (uint16_t)opc, lt, 2, 0);
@@ -1096,7 +1102,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             return BIR_MAKE_VAL(res); /* pre-inc returns new value */
         }
 
-        lower_error(L, node, "unsupported unary prefix");
+        lower_error(L, node, BC_E103);
         return BIR_VAL_NONE;
     }
 
@@ -1129,7 +1135,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             set_op(L, st, 1, ptr);
             return BIR_MAKE_VAL(old); /* post-inc returns old value */
         }
-        lower_error(L, node, "unsupported postfix op");
+        lower_error(L, node, BC_E104);
         return BIR_VAL_NONE;
     }
 
@@ -1743,7 +1749,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             }
         }
         if (!found) {
-            lower_error(L, node, "unknown function in call");
+            lower_error(L, node, BC_E105);
             return BIR_VAL_NONE;
         }
 
@@ -1873,7 +1879,7 @@ static uint32_t lower_expr(lower_t *L, uint32_t node)
             bir_type_int(L->M, 64), 0));
 
     default:
-        lower_error(L, node, "unsupported expression node");
+        lower_error(L, node, BC_E106);
         return BIR_VAL_NONE;
     }
 }
@@ -1891,12 +1897,12 @@ static uint32_t lower_lvalue(lower_t *L, uint32_t node)
         get_text(L, node, name, sizeof(name));
         sym_t *s = find_sym(L, name);
         if (!s) {
-            lower_error(L, node, "undefined lvalue");
+            lower_error(L, node, BC_E107);
             return BIR_VAL_NONE;
         }
         if (s->is_alloca)
             return BIR_MAKE_VAL(s->ref);
-        lower_error(L, node, "parameter not addressable");
+        lower_error(L, node, BC_E108);
         return BIR_VAL_NONE;
     }
 
@@ -1917,7 +1923,7 @@ static uint32_t lower_lvalue(lower_t *L, uint32_t node)
     case AST_UNARY_PREFIX:
         if (n->d.oper.op == TOK_STAR)
             return lower_expr(L, n->first_child);
-        lower_error(L, node, "not an lvalue (prefix)");
+        lower_error(L, node, BC_E109);
         return BIR_VAL_NONE;
 
     case AST_MEMBER: {
@@ -1951,7 +1957,7 @@ static uint32_t lower_lvalue(lower_t *L, uint32_t node)
                 return BIR_MAKE_VAL(gep);
             }
         }
-        lower_error(L, node, "unknown field in lvalue");
+        lower_error(L, node, BC_E110);
         return BIR_VAL_NONE;
     }
 
@@ -1959,7 +1965,7 @@ static uint32_t lower_lvalue(lower_t *L, uint32_t node)
         return lower_lvalue(L, n->first_child);
 
     default:
-        lower_error(L, node, "not an lvalue");
+        lower_error(L, node, BC_E111);
         return BIR_VAL_NONE;
     }
 }
@@ -2539,11 +2545,11 @@ static void lower_func_body(lower_t *L, uint32_t func_def,
     uint32_t ret_t = resolve_type(L, type_n, ret_ptr, 0);
 
     /* Collect parameters */
-    uint32_t param_nodes[16];
-    int nparams = collect_params(L, func_def, param_nodes, 16);
+    uint32_t param_nodes[32];
+    int nparams = collect_params(L, func_def, param_nodes, 32);
 
     /* Resolve param types and build function type */
-    uint32_t param_types[16];
+    uint32_t param_types[32];
     for (int i = 0; i < nparams; i++) {
         const ast_node_t *pn = ND(L, param_nodes[i]);
         uint32_t pt_type_n = pn->first_child;
@@ -3006,7 +3012,8 @@ recurse:
 /* ---- Top-Level Entry Point ---- */
 
 int bir_lower(const parser_t *P, uint32_t ast_root, bir_module_t *M,
-              const sema_ctx_t *sema)
+              const sema_ctx_t *sema,
+              bc_error_t *out_errs, int *out_nerrs)
 {
     static lower_t L_storage; /* large struct — static to avoid stack overflow */
     lower_t *L = &L_storage;
@@ -3071,15 +3078,15 @@ int bir_lower(const parser_t *P, uint32_t ast_root, bir_module_t *M,
         c = P->nodes[c].next_sibling;
     }
 
-    /* Report errors */
-    if (L->nerrors > 0) {
-        for (int i = 0; i < L->nerrors; i++) {
-            fprintf(stderr, "lower: %u:%u: %s\n",
-                    L->errors[i].loc.line, L->errors[i].loc.col,
-                    L->errors[i].msg);
-        }
-        return BC_ERR_LOWER;
+    /* Copy errors out for main.c to display */
+    if (out_errs && out_nerrs) {
+        int n = L->nerrors < BC_MAX_ERRORS ? L->nerrors : BC_MAX_ERRORS;
+        memcpy(out_errs, L->errors, (size_t)n * sizeof(bc_error_t));
+        *out_nerrs = n;
     }
+
+    if (L->nerrors > 0)
+        return BC_ERR_LOWER;
 
     return BC_OK;
 }

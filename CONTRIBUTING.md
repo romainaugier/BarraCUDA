@@ -41,6 +41,51 @@ Humour is welcome and encouraged. You're welcome to add your own personality and
 
 When refactoring or moving code, please keep existing comments with it. They took thought to write.
 
+## Language / Langue / Sprache / Idioma / 言語
+
+**Issues and PRs can be written in any language.** The only rule: provide an English translation alongside your native text. Translation tools are amazing now. Please feel free to use them.
+
+This is a deliberate choice. The best ideas in computing weren't all written in English. I learned technical Russian to build a Setun-70 ternary emulator. The BESM-6 manual isn't in English. Neither is the original Z3 documentation. If I can learn to read Cyrillic for a trinary computer, the least I can do is welcome a PR in Portuguese.
+
+**How it works in practice:**
+
+For issues and PR descriptions, write in whatever language you think in. Then add an English translation below it. The translation doesn't have to be perfect — Google Translate, DeepL, LLM's, whatever you've got. We'll work it out together.
+
+If you use an LLM (Chatgpt, Deepseek, Mistral, A russian LLM run in a basement somewhere) please provide the prompt you used with the output!
+
+For code comments, same deal. Multilingual comments are welcome and encouraged. Humour especially — if you've got a good joke in French or a dry observation in Japanese, put it in. Just add the English so everyone can laugh.
+
+```c
+/* Ceci n'est pas une pipe(line).
+ * (This is not a pipe(line).) */
+```
+
+For identifiers, the HLASM naming convention handles this naturally. When your function names are 4-7 characters of Latin text — `ra_gc`, `mk_hash`, `enc_vop3` — there's nothing culturally English about them. They're just short labels. No umlauts or accents though, sorry (especially you Germans), ASCII only in identifiers. The compiler's lexer would have opinions.
+
+I've had messages from developers around the world, all of whom speak English to varying degrees. Some of them see things I don't. Developer convenience is never a factor in my dependency decisions, and that principle extends to people. 
+
+## On LLM's 
+
+Speaking of translations and using LLM's, let us address the elephant in the room. An LLM like Chatgpt or any other model is a tool and tools are perfectly acceptable to use depending on how you use them. 
+
+I'll start off by saying that I have used LLM's. They're very nifty and perfectly fine. When AMD's documentation says one thing but the output and behaviour say another, an LLM can look up an obscure bug report from a forum post made in 2019 when someone else hit the same bug. It can also look into multiple languages, not just English. I've used LLM's like Ollama to quickly jot down some documentation, like how I would dictate to a voice recorder whenever I've hit a bug or an edge case somewhere and wanted details for when I get back to it. I've had LLM's write me tests to throw at my compilers, and if I'm tired and writing my 42nd array I might just let intellisense handle the rest.
+
+All of these are perfectly acceptable uses of LLM's. 
+
+When I was a kid learning Lua on Roblox, I would actually copy and paste scripts from forums when I genuinely got stuck. It is a fantastic way to 1) learn and 2) fix a problem if you struggle with it. Intellisense, Stack Overflow and all of these things are tools. The Mainframe community passed around assembler macros and borrowed off each other's work on literal magnetic tapes. This isn't new. LLM's are just another tool in a long line of tool development that has happened over the years.
+
+**What's acceptable**
+
+- Code review - I use LLM's to have a "second pair of eyes" when I'm writing code, it's pretty nifty at spotting unbounded memory violations I occasionally write or uncommented code that another person might need to read. There are limits to LLM's. If you ask Chatgpt about how to make a compiler it will probably recommend you to use Rust and LLVM which this project purposefully does not use. Code review is fine, architecture is not.
+- Research and search - Finding edge cases, documentation, summarisation are all fine
+- Test generation - Generate edge case galore and throw it at the compiler, If you do use an LLM just make sure to say so in the issues. 
+- Documentation - Writing up said bugs when you run into them or for your personal notes
+
+**What's not acceptable**
+
+- Generating code you don't understand - When I was writing Callout, my Call and Dispatch engine (it's what Emergency services use when dispatching a firetruck because you burnt toast and now the alarm is going off), I hit a wall. I know systems but had no idea on how to properly add a button or a UI element. I found myself relying on my Ollama model too much and eventually couldn't understand what I was making. BarraCUDA requires bit level precision as it emits machine code. If you want to submit a PR but don't understand a section of the codebase or don't understand everything, that is fine, that's being human. You are more than welcome to submit a PR, even an incomplete one, and we can discuss tradeoffs and implementations. We are all learning. Learning is what makes us, us.
+- Architecture - As above please don't make architectural decisions using a chatbot. Even then if you're making a big change in the code anyway feel free to contact me, I'm always happy to chat and open to new ideas.
+
 ## Where to Help
 
 Check `Issues` for current priorities. In general the most impactful areas are:
@@ -50,6 +95,8 @@ Check `Issues` for current priorities. In general the most impactful areas are:
 **Backend work.** New architecture targets are always interesting. The compiler is designed for this, BIR is backend-agnostic and each target is self-contained. If you're a deep tech startup and need CUDA support for your hardware, reach out.
 
 **Test cases.** Real CUDA kernels that break things are genuinely valuable. The weirder the better.
+
+**Translating error messages.** The compiler now supports multilingual error output via `--lang <file>`. There's an English reference at `lang/en.txt` and a te reo Maori translation at `lang/mi.txt`. If you speak another language, translating error messages is a fantastic way to contribute — no compiler knowledge required, just copy `lang/en.txt`, translate the text after each `=`, and keep the `%s`/`%d` placeholders in place. Every error has a language-neutral ID (like `E020`) so developers can search for help regardless of what language their errors are in.
 
 **Optimisation passes.** DCE, constant folding, and instruction scheduling already exist. If you want to add something like loop unrolling or better spill heuristics, open an issue first so we can chat about the approach.
 
