@@ -1,6 +1,9 @@
 # lang/mi.txt - Te Reo Maori
 # Ko te reo Maori tenei — na te kaihanga rorohiko o Aotearoa
 
+# ---- Internal ----
+E000=he hapa o roto i te kaihanga
+
 # ---- Lexer ----
 E001=kua ki te rohe tohu
 E002=he korero poraka kaore i oti

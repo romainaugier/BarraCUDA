@@ -2,6 +2,9 @@
 # BarraCUDA error messages. Format: ENNN=message text
 # Placeholders (%s, %d, %c, %02x) must be preserved in translations.
 
+# ---- Internal ----
+E000=internal compiler error
+
 # ---- Lexer (E001-E019) ----
 E001=token buffer overflow
 E002=unterminated block comment

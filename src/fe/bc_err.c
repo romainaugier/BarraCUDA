@@ -13,7 +13,7 @@
 /* ---- Compiled-in English defaults ---- */
 
 static const char *bc_dflt[BC_EID_MAX] = {
-    /* E000 */ NULL,
+    /* E000 */ "internal compiler error",
 
     /* ---- Lexer ---- */
     /* E001 */ "token buffer overflow",
@@ -94,7 +94,7 @@ static const char *bc_xlat[BC_EID_MAX];
 const char *bc_efmt(bc_eid_t eid)
 {
     int id = (int)eid;
-    if (id <= 0 || id >= BC_EID_MAX) return "unknown error";
+    if (id < 0 || id >= BC_EID_MAX) return "unknown error";
     if (bc_xlat[id]) return bc_xlat[id];
     if (bc_dflt[id]) return bc_dflt[id];
     return "unknown error";

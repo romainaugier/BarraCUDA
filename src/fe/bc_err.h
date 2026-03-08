@@ -19,7 +19,7 @@
 #define BC_EID_MAX 130
 
 typedef enum {
-    BC_E_NONE = 0,
+    BC_E000 = 0,   /* internal compiler error — the "this shouldn't happen" */
 
     /* ---- Lexer (E001-E019) ---- */
     BC_E001 = 1,   /* token buffer overflow */
