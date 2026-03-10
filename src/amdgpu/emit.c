@@ -459,17 +459,15 @@ typedef struct {
     uint8_t  in_graph;
 } ra_node_t;
 
-/* Dynamically allocated per regalloc_graphcolor() call, sized to actual
-   node count N.  NOTE: these static globals make the allocator non-reentrant.  Fine for
-   single-threaded compilation; would need to be bundled into a context
-   struct if we ever parallelize across functions. */
-static void      *ra_mem;
-static uint32_t  *ra_ifg;
-static ra_node_t *ra_nodes;
-static uint32_t  *ra_stack;
-static uint32_t   ra_num_nodes;
-static uint32_t   ra_stride;
-static uint32_t   ra_stack_top;
+/* Static pools for graph coloring -- sized to RA_MAX_NODES upper bound.
+   Non-reentrant; fine for single-threaded compilation. */
+#define RA_IFG_WORDS  ((RA_MAX_NODES * RA_MAX_NODES + 31) / 32)
+static uint32_t  ra_ifg[RA_IFG_WORDS];
+static ra_node_t ra_nodes[RA_MAX_NODES];
+static uint32_t  ra_stack[RA_MAX_NODES];
+static uint32_t  ra_num_nodes;
+static uint32_t  ra_stride;
+static uint32_t  ra_stack_top;
 
 static uint16_t ra_vreg_to_node[AMD_MAX_VREGS];
 
@@ -542,18 +540,18 @@ static int bv_or(uint32_t *dst, const uint32_t *src, uint32_t nwords)
     return changed;
 }
 
-/* Per-block liveness arrays.  Dynamically allocated, sized to actual
-   num_blocks × bv_words.  Accessed as ra_live_in[bi * ra_bv_words + w]. */
-#define RA_MAX_BLOCKS 4096
+/* Per-block liveness arrays -- statically sized to RA_MAX_BLOCKS upper
+   bound.  Accessed as ra_live_in[bi * ra_bv_words + w]. */
+#define RA_MAX_BLOCKS   4096
+#define RA_BV_MAX_WORDS ((RA_MAX_NODES + 31) / 32)
 
-static uint32_t *ra_live_in;    /* [nb][bv_words] flattened */
-static uint32_t *ra_live_out;
-static uint32_t *ra_blk_def;
-static uint32_t *ra_blk_use;
-static uint16_t *ra_succs;      /* [nb][2] flattened */
-static uint8_t  *ra_nsuccs;     /* [nb] */
-static uint32_t  ra_bv_words;   /* bitvector width for current allocation */
-static void     *ra_liveness_mem;
+static uint32_t ra_live_in [RA_MAX_BLOCKS * RA_BV_MAX_WORDS];
+static uint32_t ra_live_out[RA_MAX_BLOCKS * RA_BV_MAX_WORDS];
+static uint32_t ra_blk_def [RA_MAX_BLOCKS * RA_BV_MAX_WORDS];
+static uint32_t ra_blk_use [RA_MAX_BLOCKS * RA_BV_MAX_WORDS];
+static uint16_t ra_succs   [RA_MAX_BLOCKS * 2];
+static uint8_t  ra_nsuccs  [RA_MAX_BLOCKS];
+static uint32_t ra_bv_words;
 
 #define RA_BV(arr, bi)  ((arr) + (size_t)(bi) * ra_bv_words)
 #define RA_SUCCS(bi)    (ra_succs + (size_t)(bi) * 2)
@@ -676,8 +674,8 @@ static void ra_build_ifg_from_liveness(const amd_module_t *A,
                                        uint32_t nv)
 {
     uint32_t bv_words = ra_bv_words;
-    uint32_t *live = (uint32_t *)calloc(bv_words, sizeof(uint32_t));
-    if (!live) return;
+    static uint32_t live[RA_BV_MAX_WORDS];
+    memset(live, 0, bv_words * sizeof(uint32_t));
 
     for (uint32_t bi = 0; bi < F->num_blocks; bi++) {
         const mblock_t *MB = &A->mblocks[F->first_block + bi];
@@ -741,7 +739,6 @@ static void ra_build_ifg_from_liveness(const amd_module_t *A,
         }
     }
 
-    free(live);
 }
 
 static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
@@ -760,22 +757,11 @@ static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
         uint32_t nv = A->vreg_count;
         if (nv > RA_MAX_NODES) nv = RA_MAX_NODES;
 
-        /* Allocate ra_ifg + ra_nodes + ra_stack in one calloc, sized
-           to nv (upper bound on node count).  calloc zero-inits the
-           bitmatrix and node fields for free. */
+        /* Zero the static IFG bitmatrix and node table for this iteration */
         {
             size_t ifg_words = ((uint64_t)nv * nv + 31) / 32;
-            size_t total = ifg_words * sizeof(uint32_t)
-                         + nv * sizeof(ra_node_t)
-                         + nv * sizeof(uint32_t);
-            ra_mem = calloc(1, total);
-            if (!ra_mem) {
-                regalloc_linear(A, mf_idx);
-                return;
-            }
-            ra_ifg   = (uint32_t *)ra_mem;
-            ra_nodes = (ra_node_t *)((char *)ra_mem + ifg_words * sizeof(uint32_t));
-            ra_stack = (uint32_t *)((char *)ra_nodes + nv * sizeof(ra_node_t));
+            memset(ra_ifg, 0, ifg_words * sizeof(uint32_t));
+            memset(ra_nodes, 0, nv * sizeof(ra_node_t));
             ra_stride = nv;
         }
 
@@ -812,29 +798,19 @@ static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
             }
         }
 
-        if (ra_num_nodes == 0) { free(ra_mem); ra_mem = NULL; gc_success = 1; break; }
+        if (ra_num_nodes == 0) { gc_success = 1; break; }
 
-        /* --- Allocate per-block liveness arrays --- */
+        /* --- Zero per-block liveness arrays --- */
         {
             uint32_t nb = F->num_blocks;
             ra_bv_words = (nv + 31) / 32;
             size_t bv_sz = (size_t)nb * ra_bv_words * sizeof(uint32_t);
-            size_t succ_sz = (size_t)nb * 2 * sizeof(uint16_t);
-            size_t nsucc_sz = (size_t)nb * sizeof(uint8_t);
-            size_t total = bv_sz * 4 + succ_sz + nsucc_sz;
-            ra_liveness_mem = calloc(1, total);
-            if (!ra_liveness_mem) {
-                free(ra_mem); ra_mem = NULL;
-                regalloc_linear(A, mf_idx);
-                return;
-            }
-            char *p = (char *)ra_liveness_mem;
-            ra_live_in  = (uint32_t *)p; p += bv_sz;
-            ra_live_out = (uint32_t *)p; p += bv_sz;
-            ra_blk_def  = (uint32_t *)p; p += bv_sz;
-            ra_blk_use  = (uint32_t *)p; p += bv_sz;
-            ra_succs    = (uint16_t *)p; p += succ_sz;
-            ra_nsuccs   = (uint8_t  *)p;
+            memset(ra_live_in,  0, bv_sz);
+            memset(ra_live_out, 0, bv_sz);
+            memset(ra_blk_def,  0, bv_sz);
+            memset(ra_blk_use,  0, bv_sz);
+            memset(ra_succs,    0, nb * 2 * sizeof(uint16_t));
+            memset(ra_nsuccs,   0, nb * sizeof(uint8_t));
         }
 
         /* --- Build CFG and compute per-block liveness --- */
@@ -1084,26 +1060,12 @@ static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
                 num_spills++;
             }
 
-            /* Full-function output buffer --sized to hold all instructions
-               across all blocks with room for spill loads/stores.
-               Single-pass: expand all blocks into this buffer, then
-               bulk-copy back once at the end. */
-            uint32_t total_insts = 0;
-            for (uint32_t bi2 = 0; bi2 < F->num_blocks; bi2++)
-                total_insts += A->mblocks[F->first_block + bi2].num_insts;
-            /* worst case: each inst gets a load+store per spill, plus
-               SGPR spills add an extra intermediary op each */
-            size_t out_cap = (size_t)total_insts * (1 + 3 * num_spills) + 16;
-            if (out_cap > AMD_MAX_MINSTS) out_cap = AMD_MAX_MINSTS;
-            minst_t *ra_output = (minst_t *)malloc(out_cap * sizeof(minst_t));
-            if (!ra_output) break;
-
-            uint32_t *blk_out_start = (uint32_t *)malloc(F->num_blocks * sizeof(uint32_t));
-            uint32_t *blk_out_count = (uint32_t *)malloc(F->num_blocks * sizeof(uint32_t));
-            if (!blk_out_start || !blk_out_count) {
-                free(ra_output); free(blk_out_start); free(blk_out_count);
-                break;
-            }
+            /* Static output buffer for spill expansion --sized to
+               AMD_MAX_MINSTS (the hard ceiling on total instructions). */
+            static minst_t  ra_output[AMD_MAX_MINSTS];
+            static uint32_t blk_out_start[RA_MAX_BLOCKS];
+            static uint32_t blk_out_count[RA_MAX_BLOCKS];
+            uint32_t out_cap = AMD_MAX_MINSTS;
             uint32_t out_count = 0;
 
             for (uint32_t bi2 = 0; bi2 < F->num_blocks; bi2++) {
@@ -1302,12 +1264,6 @@ static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
                 A->mblocks[later].first_inst =
                     (uint32_t)((int32_t)A->mblocks[later].first_inst + total_delta);
 
-            free(ra_output);
-            free(blk_out_start);
-            free(blk_out_count);
-
-            free(ra_liveness_mem); ra_liveness_mem = NULL;
-            free(ra_mem); ra_mem = NULL;
             continue;
         }
 
@@ -1323,8 +1279,6 @@ static void regalloc_graphcolor(amd_module_t *A, uint32_t mf_idx)
 
         F->num_sgprs = max_sgpr;
         F->num_vgprs = max_vgpr;
-        free(ra_liveness_mem); ra_liveness_mem = NULL;
-        free(ra_mem); ra_mem = NULL;
         gc_success = 1;
         break; /* success, no spills */
     }
