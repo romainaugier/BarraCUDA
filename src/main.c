@@ -79,6 +79,8 @@ static void usage(const char *prog)
         "  --gfx942      Target CDNA 3 (gfx942, MI300X)\n"
         "  --gfx1030     Target RDNA 2 (gfx1030)\n"
         "  --gfx1200     Target RDNA 4 (gfx1200)\n"
+        "  --no-graphcolor  Force linear scan register allocation\n"
+        "  --max-vgprs N    Cap VGPR count for regalloc (forces spills)\n"
         "  --tensix      Compile to TT-Metalium C++ (Tensix SFPU)\n"
         "  -o <file>     Output file (for --amdgpu-bin, --tensix)\n"
         "  --lang <file> Load translated error messages\n"
@@ -201,6 +203,10 @@ int main(int argc, char *argv[])
             no_dce = 1;
         else if (strcmp(argv[i], "--no-sched") == 0)
             no_sched = 1;
+        else if (strcmp(argv[i], "--no-graphcolor") == 0)
+            amd_ra_lin = 1;
+        else if (strcmp(argv[i], "--max-vgprs") == 0 && i + 1 < argc)
+            amd_max_vgpr = atoi(argv[++i]);
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             usage(argv[0]);
             return 0;

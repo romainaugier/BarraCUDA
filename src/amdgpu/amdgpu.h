@@ -459,6 +459,12 @@ void amdgpu_emit_asm(const amd_module_t *amd, FILE *out);
 /* Emit binary ELF code object (.hsaco) to file */
 int  amdgpu_emit_elf(amd_module_t *amd, const char *path);
 
+/* Set to 1 to force linear scan instead of graph coloring */
+extern int amd_ra_lin;
+
+/* If non-zero, cap available VGPRs for regalloc (forces spills for testing) */
+extern int amd_max_vgpr;
+
 /* Encoding table (defined in amdgpu_emit.c) */
 extern const amd_enc_entry_t amd_enc_table[AMD_OP_COUNT];
 extern const amd_enc_entry_t amd_enc_table_gfx10[AMD_OP_COUNT];
