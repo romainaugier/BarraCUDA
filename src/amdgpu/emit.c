@@ -254,6 +254,7 @@ static void expire_old(uint32_t point)
     RA.num_active = j;
 }
 
+/* Rewrite virtual reg operands to physical */
 static void rw_ops(amd_module_t *A, const mfunc_t *F)
 {
     for (uint32_t bi = 0; bi < F->num_blocks; bi++) {
@@ -276,6 +277,9 @@ static void rw_ops(amd_module_t *A, const mfunc_t *F)
                 }
             }
 
+            /* Convert PSEUDO_COPY to actual MOV.
+             * SGPR←VGPR needs v_readfirstlane (uniform value
+             * that ended up in a VGPR — thanks, CDNA hazard). */
             if (mi->op == AMD_PSEUDO_COPY) {
                 if (mi->operands[0].kind == MOP_VGPR)
                     mi->op = AMD_V_MOV_B32;
@@ -286,7 +290,10 @@ static void rw_ops(amd_module_t *A, const mfunc_t *F)
     }
 }
 
-/* Dead copy elimination: kill MOVs where src == dst. */
+/* Dead copy elimination: kill MOVs where src == dst.
+   These appear when regalloc assigns the same phys reg to both sides
+   of a copy. Harmless but noisy — like a postman delivering a letter
+   back to the sender. */
 static void dce_copy(amd_module_t *A, const mfunc_t *F)
 {
     for (uint32_t bi = 0; bi < F->num_blocks; bi++) {
@@ -299,6 +306,7 @@ static void dce_copy(amd_module_t *A, const mfunc_t *F)
                 mi->num_defs == 1 && mi->num_uses == 1 &&
                 mi->operands[0].kind == mi->operands[1].kind &&
                 mi->operands[0].reg_num == mi->operands[1].reg_num) {
+                /* Convert to NOP — the emitter already handles these */
                 mi->op = AMD_PSEUDO_DEF;
                 mi->num_defs = 0;
                 mi->num_uses = 0;
@@ -339,9 +347,13 @@ static void dce_copy(amd_module_t *A, const mfunc_t *F)
 
 static void fin_regs(const amd_module_t *A, mfunc_t *F)
 {
+    /* Minimum 1 SGPR/VGPR for the descriptor */
     if (F->num_sgprs == 0) F->num_sgprs = 1;
     if (F->num_vgprs == 0) F->num_vgprs = 1;
 
+    /* __launch_bounds__ VGPR cap. More threads = fewer registers.
+       The maths of sharing: 256 VGPRs divided among the waves you
+       promised the hardware you'd run. Break the promise at your peril. */
     if (F->launch_bounds_max > 0 && F->launch_bounds_max < 1024) {
         int w64 = (A->target <= AMD_TARGET_GFX90A);
         uint32_t wsz = w64 ? 64u : 32u;
